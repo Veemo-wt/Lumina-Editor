@@ -1,0 +1,3 @@
+matrix:
+  platform: [macos-latest, windows-latest]
+  
