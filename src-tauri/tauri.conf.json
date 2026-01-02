@@ -24,6 +24,10 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "windows": "src-tauri/icons/icon.ico"
+    "windows": {
+       "icon": [
+       "src-tauri/icons/icon.ico"
+       ]
+    }
   }
 }
