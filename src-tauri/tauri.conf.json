@@ -24,5 +24,6 @@
   "bundle": {
     "active": true,
     "targets": "all"
+    "windows": "src-tauri/icons/icon.ico"
   }
 }
