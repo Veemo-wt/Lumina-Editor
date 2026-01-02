@@ -109,7 +109,7 @@ const FileUpload: React.FC<Props> = ({ onFileLoaded }) => {
       <div className="mt-8 flex gap-4 justify-center text-gray-400 dark:text-gray-600 text-xs transition-colors">
          <div className="flex items-center gap-1"><FileArchive size={14}/> Wsparcie wielu plików w .zip</div>
          <div className="flex items-center gap-1"><FileText size={14}/> Inteligentna segmentacja</div>
-         <div className="flex items-center gap-1"><FileText size={14}/> Polish typografia</div>
+         <div className="flex items-center gap-1"><FileText size={14}/> Polska typografia</div>
       </div>
     </div>
   );

@@ -72,6 +72,9 @@ export const translateChunk = async (request: TranslationRequest): Promise<strin
     Provide ONLY the translated Polish text. No markdown blocks, no intro/outro.
   `;
 
+  // Temperature logic: gpt-5-mini requires 1, others get 0.3
+  const temperature = targetModel === 'gpt-5-mini' ? 1 : 0.3;
+
   let attempt = 0;
   const maxRetries = 3;
 
@@ -83,7 +86,7 @@ export const translateChunk = async (request: TranslationRequest): Promise<strin
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userContent }
         ],
-        temperature: 0.4,
+        temperature: temperature,
       });
 
       return response.choices[0]?.message?.content?.trim() || "";
