@@ -1,0 +1,32 @@
+{
+  "name": "lumina-book-translator",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build"
+  },
+  "dependencies": {
+    "react": "^19.2.3",
+    "react-dom": "^19.2.3",
+    "openai": "4.28.0",
+    "lucide-react": "^0.562.0",
+    "pdfjs-dist": "4.0.379",
+    "mammoth": "1.6.0",
+    "docx": "8.5.0",
+    "jszip": "3.10.1",
+    "@tauri-apps/api": "^2.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.14.0",
+    "@vitejs/plugin-react": "^5.0.0",
+    "typescript": "~5.8.2",
+    "vite": "^6.2.0",
+    "@tauri-apps/cli": "^2.0.0"
+  }
+}
