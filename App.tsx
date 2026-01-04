@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { AppStage, TranslationConfig, BookGenre, ChunkData, GlossaryItem, ProcessingStats, RawFile } from './types';
+import { AppStage, TranslationConfig, BookGenre, ChunkData, GlossaryItem, ProcessingStats, RawFile, CharacterTrait } from './types';
 import { chunkText, getLookback, downloadFile, saveBlob, generateDocxBlob, mergeGlossaryItems } from './utils/textProcessing';
 import { translateChunk, detectGlossaryTerms, extractGlossaryPairs } from './services/geminiService';
 import { saveSession, loadSession, clearSession } from './utils/storage';
@@ -15,6 +15,7 @@ const DEFAULT_CONFIG: TranslationConfig = {
   genre: BookGenre.FICTION_LITERARY,
   tone: 'Wierny stylowi oryginału',
   glossary: [],
+  characterBible: [],
   chunkSize: 40000, 
   lookbackSize: 10000, 
   chapterPattern: '(Chapter|Rozdział|Part)\\s+\\d+'
@@ -57,7 +58,11 @@ const App: React.FC = () => {
         if (saved && saved.stage !== 'upload') {
           setRawFiles(saved.rawFiles || []);
           setFileName(saved.fileName || '');
-          setConfig(saved.config || DEFAULT_CONFIG);
+          setConfig(prev => ({
+            ...DEFAULT_CONFIG,
+            ...saved.config,
+            characterBible: saved.config?.characterBible || [] // Ensure backward compatibility
+          }));
           setChunks(saved.chunks || []);
           setCurrentChunkIdx(saved.currentChunkIdx || 0);
           setStage(saved.stage || 'upload');
@@ -229,12 +234,6 @@ const App: React.FC = () => {
 
         let lookbackText = "";
         if (currentChunkIdx > 0) {
-           // Lookback logic: grab from completed chunks
-           // We might need to grab from `chunks` array in state.
-           // Since `chunks` in this scope might be stale if we don't use functional updates strictly or refs,
-           // but `chunks[currentChunkIdx - 1]` is stable enough if we just moved idx.
-           // Better: Use a ref or careful indexing.
-           // Actually, `chunks` dependency in useEffect ensures we have latest.
            const prevChunk = chunks[currentChunkIdx - 1];
            lookbackText = getLookback(prevChunk.originalText, configRef.current.lookbackSize);
         }
@@ -245,6 +244,7 @@ const App: React.FC = () => {
           genre: configRef.current.genre,
           tone: configRef.current.tone,
           glossary: configRef.current.glossary,
+          characterBible: configRef.current.characterBible,
           apiKey: configRef.current.apiKey,
           model: configRef.current.model
         });
@@ -350,10 +350,13 @@ const App: React.FC = () => {
       
       {stage !== 'upload' && (
         <GlossarySidebar 
-          items={config.glossary}
-          onAdd={(item) => setConfig(prev => ({ ...prev, glossary: [...prev.glossary, item] }))}
-          onRemove={(id) => setConfig(prev => ({ ...prev, glossary: prev.glossary.filter(g => g.id !== id) }))}
-          onUpdate={() => {}} 
+          glossaryItems={config.glossary}
+          characterBible={config.characterBible}
+          onAddGlossary={(item) => setConfig(prev => ({ ...prev, glossary: [...prev.glossary, item] }))}
+          onRemoveGlossary={(id) => setConfig(prev => ({ ...prev, glossary: prev.glossary.filter(g => g.id !== id) }))}
+          onRemoveCharacter={(id) => setConfig(prev => ({ ...prev, characterBible: (prev.characterBible || []).filter(c => c.id !== id) }))}
+          onImportGlossary={(items) => setConfig(prev => ({ ...prev, glossary: [...prev.glossary, ...items] }))}
+          onImportBible={(items) => setConfig(prev => ({ ...prev, characterBible: [...(prev.characterBible || []), ...items] }))}
         />
       )}
 
@@ -501,7 +504,7 @@ const App: React.FC = () => {
                         </div>
 
                         <div className="grid grid-cols-2 gap-6">
-                           <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 transition-colors">
+                           <div className="bg-white dark:bg-800 p-6 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 transition-colors">
                               <div className="font-serif text-gray-600 dark:text-gray-300 text-sm leading-relaxed whitespace-pre-wrap">
                                 {chunk.originalText}
                               </div>

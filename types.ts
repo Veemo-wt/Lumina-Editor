@@ -16,6 +16,17 @@ export interface GlossaryItem {
   category: 'character' | 'location' | 'event' | 'object' | 'other';
 }
 
+export interface CharacterTrait {
+  id: string;
+  name: string; // The character name in Source
+  polishName: string; // The character name in Target (Polish)
+  gender: 'male' | 'female' | 'neutral' | 'plural';
+  age?: string; // e.g. "Teenager", "Elderly", "Child"
+  speechStyle?: string; // e.g. "Formal", "Slang", "Archaic", "Stutters"
+  role?: string; // e.g. "Protagonist", "Antagonist"
+  notes?: string;
+}
+
 export interface ProcessingStats {
   totalCharacters: number;
   processedCharacters: number;
@@ -40,6 +51,7 @@ export interface TranslationConfig {
   genre: BookGenre;
   tone: string; // e.g., "Formal", "Witty", "Archaic"
   glossary: GlossaryItem[];
+  characterBible: CharacterTrait[];
   chunkSize: number; // Target characters per chunk
   lookbackSize: number; // Characters to include from previous chunk
   chapterPattern?: string; // Regex pattern for detection e.g. "Chapter \d+"

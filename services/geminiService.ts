@@ -1,5 +1,5 @@
 import OpenAI from 'openai';
-import { BookGenre, GlossaryItem } from '../types';
+import { BookGenre, GlossaryItem, CharacterTrait } from '../types';
 
 interface TranslationRequest {
   chunkText: string;
@@ -7,6 +7,7 @@ interface TranslationRequest {
   genre: BookGenre;
   tone: string;
   glossary: GlossaryItem[];
+  characterBible?: CharacterTrait[];
   apiKey: string;
   model: string;
 }
@@ -22,7 +23,7 @@ const createClient = (apiKey: string) => {
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 export const translateChunk = async (request: TranslationRequest): Promise<string> => {
-  const { chunkText, lookbackText, genre, tone, glossary, apiKey, model } = request;
+  const { chunkText, lookbackText, genre, tone, glossary, characterBible, apiKey, model } = request;
   const client = createClient(apiKey);
   const targetModel = model || 'gpt-4o';
 
@@ -33,6 +34,17 @@ export const translateChunk = async (request: TranslationRequest): Promise<strin
       TRANSLATION: "${g.translation}"
       TYPE: ${g.category}
       CONTEXT/TRAITS: ${g.description || 'No specific context.'}
+    `.trim())
+    .join('\n---\n');
+
+  // Character Bible Formatting
+  const bibleString = (characterBible || [])
+    .map(c => `
+      CHARACTER: "${c.name}" (PL: ${c.polishName})
+      GENDER: ${c.gender}
+      AGE: ${c.age || 'N/A'}
+      SPEECH STYLE: ${c.speechStyle || 'Standard'}
+      NOTES: ${c.notes || ''}
     `.trim())
     .join('\n---\n');
 
@@ -50,8 +62,10 @@ export const translateChunk = async (request: TranslationRequest): Promise<strin
     3. **Glossary & Rich Context:** 
        - Strictly adhere to the provided terms.
        - **CRITICAL:** Use the "CONTEXT/TRAITS" provided in the glossary to inform your translation choices. 
-       - Example: If a character is described as "rude peasant", use appropriate rustic/rude Polish register. If "formal noble", use formal Polish (Pan/Pani). 
-       - Ensure grammatical gender in Polish matches the character's description/gender.
+       
+    **CHARACTER CONSISTENCY (Bible):**
+    Use this bible to ensure correct grammatical gender (verbs/adjectives) and consistent naming.
+    ${bibleString.length > 0 ? bibleString : 'No character bible provided.'}
     
     **Glossary Data:**
     ${glossaryString.length > 0 ? glossaryString : 'No specific glossary provided yet. Maintain internal consistency.'}
@@ -136,16 +150,23 @@ export const extractGlossaryPairs = async (
   const existingTerms = existingGlossary.map(g => g.term).join(", ");
 
   const systemPrompt = `
-    You are a literary analyst and glossary builder. 
-    Analyze the aligned source text and its Polish translation.
-    Identify **NEW** important entities that need consistency tracking.
+    You are a literary analyst and glossary builder for a Polish publishing house.
+    Analyze the aligned English source text and its Polish translation.
+    Identify **NEW** important entities (Characters, Locations, Specific Objects) that need consistency tracking.
+    
+    **Requirements:**
+    1. 'term': The English term.
+    2. 'translation': The Polish translation used in the text.
+    3. 'description': A concise description of the entity's role or context **IN POLISH**.
+    4. 'category': one of [character, location, event, object, other].
+    
     Return valid JSON.
   `;
 
   const userPrompt = `
     **Source:** ${sourceSample}...
     **Translation:** ${targetSample}...
-    **Existing Terms:** ${existingTerms}
+    **Existing Terms (Ignore these):** ${existingTerms}
     
     Output JSON format: { "items": [{ "term": "...", "translation": "...", "category": "...", "description": "..." }] }
   `;
@@ -187,10 +208,22 @@ export const detectGlossaryTerms = async (text: string, apiKey: string, model: s
   const client = createClient(apiKey);
   const targetModel = model || 'gpt-4o';
   
-  const systemPrompt = "You are a literary assistant. Analyze the text to find key entities.";
+  const systemPrompt = `
+    You are a literary assistant preparing a book for translation into Polish.
+    Analyze the provided text to identify key entities (Characters, Locations, Key Terms).
+    
+    **Requirements:**
+    1. **Term**: The name/term.
+    2. **Translation**: Propose a standard Polish translation (e.g., "King John" -> "Król Jan", or keep original if it's a name like "Smith").
+    3. **Description**: Describe the character/location briefly **IN POLISH** (e.g., "Główny bohater, cyniczny detektyw").
+    4. **Category**: [character, location, object, other].
+    
+    Return valid JSON.
+  `;
+  
   const userPrompt = `
-    Analyze this text: ${text.slice(0, 10000)}...
-    Return JSON: { "items": [{ "term": "...", "category": "...", "description": "..." }] }
+    Analyze this text: ${text.slice(0, 15000)}...
+    Return JSON: { "items": [{ "term": "...", "translation": "...", "category": "...", "description": "..." }] }
   `;
 
   try {
@@ -210,7 +243,7 @@ export const detectGlossaryTerms = async (text: string, apiKey: string, model: s
     return items.map((p: any, idx: number) => ({
       id: `auto-${Date.now()}-${idx}`,
       term: p.term,
-      translation: '', 
+      translation: p.translation || p.term, // Fallback to term if translation missing
       description: p.description || '',
       category: p.category || 'other'
     }));
