@@ -210,7 +210,7 @@ const ConfigPanel: React.FC<Props> = ({ config, onChange, onStart, fileName, cha
            <div className="text-[9px] text-gray-400 dark:text-gray-500 mt-1 text-right leading-tight">
              Model: <strong>{modelInfo.name}</strong>
              <br/>
-             <span className="text-emerald-600 dark:text-emerald-400">Cache: ${modelInfo.cachedInput}/1M</span> &bull; Std: ${modelInfo.input}/1M
+             In: ${modelInfo.input} (<span className="text-emerald-600 dark:text-emerald-400">${modelInfo.cachedInput}</span>) &bull; Out: ${modelInfo.output} <span className="opacity-70">/1M</span>
            </div>
         </div>
       </div>
