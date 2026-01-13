@@ -6,6 +6,21 @@ export enum BookGenre {
   NON_FICTION_ACADEMIC = 'Akademicka / Edukacyjna',
   YOUNG_ADULT = 'Literatura Młodzieżowa (YA)',
   ROMANCE = 'Romans',
+  HISTORICAL_FICTION = 'Powieść Historyczna',
+  CHILDREN = 'Dziecięca',
+  REPORTAGE = 'Reportaż',
+  POPULAR_SCIENCE = 'Popularnonaukowa',
+  SELF_HELP = 'Poradnik / Rozwój Osobisty',
+  PSYHOLOGY = 'Psychologia',
+  PHILOSOPHY = 'Filozodia',
+  BUISNESS = 'Biznes / Ekonomia'
+  TECHNOLOGY = 'Technolofia / IT',
+  RELIGION = 'Religia',
+  TRAVEL = 'Podróże',
+  COOKING = 'Kulinaria',
+  HEALTH = 'Zdrowie / Medycyna'
+  
+
 }
 
 export interface GlossaryItem {
