@@ -8,27 +8,67 @@ import JSZip from 'jszip';
 pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://esm.sh/pdfjs-dist@4.0.379/build/pdf.worker.min.mjs';
 
 /**
- * Standard length-based splitter. Used as a fallback or for huge chapters.
- * Splits at newlines to preserve paragraph integrity.
+ * Robust length-based splitter.
+ * Handles cases where a single line might exceed targetSize (e.g. bad PDF extraction).
  */
 const chunkByLength = (text: string, targetSize: number): string[] => {
   const chunks: string[] = [];
+  
+  // 1. Split by newlines first to preserve paragraphs
   const lines = text.split('\n');
   
   let currentChunkText = '';
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    // If adding this line exceeds the limit and we have content, push the chunk
+    
+    // Check if the line itself is massive (larger than chunk size)
+    if (line.length > targetSize) {
+      // If we have accumulation, push it first
+      if (currentChunkText.length > 0) {
+        chunks.push(currentChunkText);
+        currentChunkText = '';
+      }
+
+      // Split massive line by sentences (heuristic)
+      const sentences = line.match(/[^.!?]+[.!?]+["']?|[^.!?]+$/g) || [line];
+      
+      let tempMassiveChunk = '';
+      for (const sentence of sentences) {
+        if ((tempMassiveChunk.length + sentence.length) > targetSize) {
+           if (tempMassiveChunk.length > 0) {
+             chunks.push(tempMassiveChunk);
+             tempMassiveChunk = '';
+           }
+           // If a single sentence is still huge (rare but possible), hard split
+           if (sentence.length > targetSize) {
+              const hardSplits = sentence.match(new RegExp(`.{1,${targetSize}}`, 'g')) || [sentence];
+              hardSplits.forEach(s => chunks.push(s));
+              continue;
+           }
+        }
+        tempMassiveChunk += sentence;
+      }
+      if (tempMassiveChunk.length > 0) {
+        // Don't push immediately, maybe we can fit more from next lines? 
+        // Actually for massive line handling, safer to push and reset.
+        chunks.push(tempMassiveChunk);
+      }
+      // Add newline that was stripped by split
+      if (chunks.length > 0) {
+        chunks[chunks.length - 1] += '\n';
+      }
+      continue;
+    }
+
+    // Normal behavior for reasonable lines
     if ((currentChunkText.length + line.length) > targetSize && currentChunkText.length > 0) {
       chunks.push(currentChunkText);
       currentChunkText = '';
     }
-    // Preserve the newline when rebuilding
     currentChunkText += line + '\n';
   }
 
-  // Push the final chunk
   if (currentChunkText.length > 0) {
     chunks.push(currentChunkText);
   }

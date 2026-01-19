@@ -1,3 +1,4 @@
+
 import OpenAI from 'openai';
 import { BookGenre, GlossaryItem, CharacterTrait } from '../types';
 
@@ -12,6 +13,15 @@ interface TranslationRequest {
   model: string;
 }
 
+export interface TranslationResult {
+  text: string;
+  usage: {
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+  };
+}
+
 const createClient = (apiKey: string) => {
   if (!apiKey) throw new Error("API Key is missing");
   return new OpenAI({
@@ -22,13 +32,44 @@ const createClient = (apiKey: string) => {
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-export const translateChunk = async (request: TranslationRequest): Promise<string> => {
+/**
+ * Filter context items to only include those relevant to the text.
+ * This prevents context window overflow for massive glossaries.
+ */
+const filterRelevantContext = (text: string, glossary: GlossaryItem[], bible: CharacterTrait[]) => {
+  const lowerText = text.toLowerCase();
+  
+  // Naive but effective keyword matching. 
+  // For production, consider stemming or more advanced NLP if token limits are extremely tight.
+  const relevantGlossary = glossary.filter(item => {
+    const term = item.term.toLowerCase();
+    // Check if term exists in text. 
+    // Adding regex boundary checks (\b) helps avoid partial word matches 
+    // but might miss some declined forms in Polish if checking translation side (we check Source here).
+    return lowerText.includes(term); 
+  });
+
+  const relevantBible = bible.filter(char => {
+    const name = char.name.toLowerCase();
+    // Usually names are distinct enough
+    return lowerText.includes(name);
+  });
+
+  return { relevantGlossary, relevantBible };
+};
+
+export const translateChunk = async (request: TranslationRequest): Promise<TranslationResult> => {
   const { chunkText, lookbackText, genre, tone, glossary, characterBible, apiKey, model } = request;
   const client = createClient(apiKey);
   const targetModel = model || 'gpt-4o';
 
-  // Enhanced glossary formatting to emphasize context
-  const glossaryString = glossary
+  // --- SMART CONTEXT FILTERING ---
+  // To avoid 400 Bad Request (Context Window Limit), we only send relevant data.
+  // We check both the current chunk and the lookback text for references.
+  const combinedContextText = lookbackText + "\n" + chunkText;
+  const { relevantGlossary, relevantBible } = filterRelevantContext(combinedContextText, glossary, characterBible || []);
+
+  const glossaryString = relevantGlossary
     .map(g => `
       TERM: "${g.term}"
       TRANSLATION: "${g.translation}"
@@ -37,8 +78,7 @@ export const translateChunk = async (request: TranslationRequest): Promise<strin
     `.trim())
     .join('\n---\n');
 
-  // Character Bible Formatting
-  const bibleString = (characterBible || [])
+  const bibleString = relevantBible
     .map(c => `
       CHARACTER: "${c.name}" (PL: ${c.polishName})
       GENDER: ${c.gender}
@@ -60,15 +100,15 @@ export const translateChunk = async (request: TranslationRequest): Promise<strin
     1. **Typography:** You MUST use Polish typographic standards (e.g., „low quotes” for opening, ”high quotes” for closing). Use em-dashes (—) for dialogue.
     2. **Continuity:** Use the provided Lookback Context ONLY for flow, tone, and character voice continuity. Do not translate it.
     3. **Glossary & Rich Context:** 
-       - Strictly adhere to the provided terms.
+       - Strictly adhere to the provided terms below.
+       - **GLOSSARY PRIORITY:** If multiple terms in the glossary could apply to a phrase, ALWAYS prioritize the longer, more specific term.
        - **CRITICAL:** Use the "CONTEXT/TRAITS" provided in the glossary to inform your translation choices. 
        
-    **CHARACTER CONSISTENCY (Bible):**
-    Use this bible to ensure correct grammatical gender (verbs/adjectives) and consistent naming.
-    ${bibleString.length > 0 ? bibleString : 'No character bible provided.'}
+    **CHARACTER CONSISTENCY (Relevant to this section):**
+    ${bibleString.length > 0 ? bibleString : 'No specific character instructions for this section.'}
     
-    **Glossary Data:**
-    ${glossaryString.length > 0 ? glossaryString : 'No specific glossary provided yet. Maintain internal consistency.'}
+    **Glossary Data (Relevant to this section):**
+    ${glossaryString.length > 0 ? glossaryString : 'No specific glossary terms found for this section.'}
   `;
 
   const userContent = `
@@ -86,8 +126,7 @@ export const translateChunk = async (request: TranslationRequest): Promise<strin
     Provide ONLY the translated Polish text. No markdown blocks, no intro/outro.
   `;
 
-  // Temperature logic: gpt-5-mini requires 1, others get 0.3
-  const temperature = targetModel === 'gpt-5-mini' ? 1 : 0.3;
+  const temperature = targetModel.includes('mini') ? 1 : 0.3;
 
   let attempt = 0;
   const maxRetries = 3;
@@ -103,37 +142,75 @@ export const translateChunk = async (request: TranslationRequest): Promise<strin
         temperature: temperature,
       });
 
-      return response.choices[0]?.message?.content?.trim() || "";
+      const text = response.choices[0]?.message?.content?.trim() || "";
+      const usage = response.usage || { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
+
+      return { text, usage };
+
     } catch (error: any) {
-      console.error(`Attempt ${attempt + 1} failed:`, error);
-      
-      // Handle Rate Limiting specifically
       if (error?.status === 429) {
-        if (attempt === maxRetries) {
-          throw new Error("Rate limit exceeded. Please check your OpenAI Usage limits or wait a moment.");
-        }
-        
-        // Exponential backoff: 15s, 30s, 45s
+        if (attempt === maxRetries) throw new Error("Rate limit exceeded.");
         const waitTime = (attempt + 1) * 15000; 
-        console.warn(`Hit rate limit (429). Retrying in ${waitTime/1000}s...`);
         await delay(waitTime);
         attempt++;
         continue;
       }
-      
-      if (error?.status === 401) throw new Error("Invalid API Key. Please check your OpenAI credentials.");
-      if (error?.status === 404) throw new Error(`Model '${targetModel}' not found. Please verify the model name.`);
-      
+      // If error is context length, we might want to retry with 0 context? 
+      // For now, just throw the clearer error.
       throw new Error(error?.message || "Failed to translate chunk.");
     }
   }
-  
-  throw new Error("Translation failed after max retries.");
+  throw new Error("Translation failed.");
 };
 
-/**
- * Extracts glossary terms from a source and translated text pair to auto-update the glossary.
- */
+export const detectGlossaryTerms = async (text: string, apiKey: string, model: string): Promise<GlossaryItem[]> => {
+  const client = createClient(apiKey);
+  const targetModel = model || 'gpt-4o';
+  
+  const systemPrompt = `
+    You are a Senior Literary Editor creating a "Series Bible" for a translation project.
+    
+    **YOUR GOAL:** Identify specific Proper Nouns and unique fictional terminology that requires consistent translation.
+    
+    **STRICT EXCLUSION RULES (DO NOT EXTRACT):**
+    - DO NOT extract common nouns (e.g., "flu", "doctor", "kitchen", "sword", "king", "ship") unless they are part of a specific Proper Name (e.g. "The Black Pearl").
+    - DO NOT extract medical conditions, weather, or standard emotions.
+    - DO NOT extract verbs or common adjectives.
+    
+    **INCLUSION RULES (EXTRACT THESE):**
+    1. **CHARACTERS:** Specific names of people or unique creatures (e.g. "Gandalf", "Wookies").
+    2. **LOCATIONS:** Specific named places (e.g. "Winterfell", "The Green Dragon Inn").
+    3. **OBJECTS:** Named artifacts or unique technology (e.g. "Excalibur", "Flux Capacitor").
+    4. **EVENTS:** Specific named historical/plot events (e.g. "The Red Wedding").
+    
+    Return the result as a JSON object with a list of items.
+  `;
+  
+  const userPrompt = `
+    Analyze this text excerpt (first 15k chars): 
+    "${text.slice(0, 15000)}..."
+    
+    Return JSON format: 
+    { "items": [{ "term": "English Term", "translation": "Suggested Polish Translation", "category": "character" | "location" | "event" | "object", "description": "Brief context" }] }
+  `;
+
+  try {
+    const response = await client.chat.completions.create({
+      model: targetModel,
+      messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
+      response_format: { type: "json_object" }
+    });
+    const parsed = JSON.parse(response.choices[0]?.message?.content || "{}");
+    return (parsed.items || []).map((p: any, idx: number) => ({
+      id: `auto-${Date.now()}-${idx}`,
+      term: p.term,
+      translation: p.translation || p.term,
+      description: p.description || '',
+      category: p.category || 'other'
+    }));
+  } catch (e) { return []; }
+};
+
 export const extractGlossaryPairs = async (
   originalText: string, 
   translatedText: string, 
@@ -144,111 +221,42 @@ export const extractGlossaryPairs = async (
   const client = createClient(apiKey);
   const targetModel = model || 'gpt-4o';
   
-  const limit = 20000; 
-  const sourceSample = originalText.slice(0, limit);
-  const targetSample = translatedText.slice(0, limit);
-  const existingTerms = existingGlossary.map(g => g.term).join(", ");
-
   const systemPrompt = `
-    You are a literary analyst and glossary builder for a Polish publishing house.
-    Analyze the aligned English source text and its Polish translation.
-    Identify **NEW** important entities (Characters, Locations, Specific Objects) that need consistency tracking.
+    You are a Translation Consistency Assistant.
+    Compare the Source text and the Translation.
     
-    **Requirements:**
-    1. 'term': The English term.
-    2. 'translation': The Polish translation used in the text.
-    3. 'description': A concise description of the entity's role or context **IN POLISH**.
-    4. 'category': one of [character, location, event, object, other].
+    **TASK:** Identify **NEW Proper Nouns** (Characters, Places, Named Artifacts) that appeared in this text but are NOT in the 'Existing Terms' list.
     
-    Return valid JSON.
+    **RULES:**
+    - IGNORE common words (flu, car, house, running).
+    - IGNORE standard vocabulary translations.
+    - ONLY return significant Named Entities that need to be saved for future consistency.
+    
+    Return JSON.
   `;
-
+  
   const userPrompt = `
-    **Source:** ${sourceSample}...
-    **Translation:** ${targetSample}...
-    **Existing Terms (Ignore these):** ${existingTerms}
+    Source: ${originalText.slice(0, 5000)}
+    Translation: ${translatedText.slice(0, 5000)}
     
-    Output JSON format: { "items": [{ "term": "...", "translation": "...", "category": "...", "description": "..." }] }
+    Existing Terms (Ignore these): ${existingGlossary.map(g => g.term).join(", ")}
+    
+    Return JSON: { "items": [{ "term", "translation", "category", "description" }] }
   `;
 
   try {
-    // We don't need aggressive retry for this background task, but a simple one helps
     const response = await client.chat.completions.create({
       model: targetModel,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt }
-      ],
+      messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
       response_format: { type: "json_object" }
     });
-
-    const raw = response.choices[0]?.message?.content || "{}";
-    const parsedResult = JSON.parse(raw);
-    const parsed = parsedResult.items || parsedResult.terms || [];
-
-    return parsed.map((p: any, idx: number) => ({
+    const parsed = JSON.parse(response.choices[0]?.message?.content || "{}");
+    return (parsed.items || []).map((p: any, idx: number) => ({
       id: `auto-${Date.now()}-${idx}`,
       term: p.term,
       translation: p.translation,
       description: p.description || '',
       category: p.category || 'other'
     }));
-
-  } catch (e: any) {
-    if (e?.status === 429) {
-      console.warn("Skipping glossary extraction due to rate limit.");
-    } else {
-      console.warn("Glossary extraction failed", e);
-    }
-    return [];
-  }
-};
-
-export const detectGlossaryTerms = async (text: string, apiKey: string, model: string): Promise<GlossaryItem[]> => {
-  const client = createClient(apiKey);
-  const targetModel = model || 'gpt-4o';
-  
-  const systemPrompt = `
-    You are a literary assistant preparing a book for translation into Polish.
-    Analyze the provided text to identify key entities (Characters, Locations, Key Terms).
-    
-    **Requirements:**
-    1. **Term**: The name/term.
-    2. **Translation**: Propose a standard Polish translation (e.g., "King John" -> "Król Jan", or keep original if it's a name like "Smith").
-    3. **Description**: Describe the character/location briefly **IN POLISH** (e.g., "Główny bohater, cyniczny detektyw").
-    4. **Category**: [character, location, object, other].
-    
-    Return valid JSON.
-  `;
-  
-  const userPrompt = `
-    Analyze this text: ${text.slice(0, 15000)}...
-    Return JSON: { "items": [{ "term": "...", "translation": "...", "category": "...", "description": "..." }] }
-  `;
-
-  try {
-    const response = await client.chat.completions.create({
-      model: targetModel,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt }
-      ],
-      response_format: { type: "json_object" }
-    });
-    
-    const raw = response.choices[0]?.message?.content || "{}";
-    const parsed = JSON.parse(raw);
-    const items = parsed.items || [];
-    
-    return items.map((p: any, idx: number) => ({
-      id: `auto-${Date.now()}-${idx}`,
-      term: p.term,
-      translation: p.translation || p.term, // Fallback to term if translation missing
-      description: p.description || '',
-      category: p.category || 'other'
-    }));
-  } catch (e) {
-    console.warn("Glossary detection failed", e);
-    return [];
-  }
+  } catch (e) { return []; }
 };
