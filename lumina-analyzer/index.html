@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Lumina Analyzer</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Merriweather:ital,wght@0,300;0,400;0,700;1,300;1,400&family=Inter:wght@300;400;500;600;700&display=swap"
+    rel="stylesheet">
+  <script>
+    tailwind.config = {
+      darkMode: 'media',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            serif: ['Merriweather', 'serif'],
+          },
+          colors: {
+            brand: {
+              50: '#faf5ff',   /* Purple 50 */
+              100: '#f3e8ff',  /* Purple 100 */
+              500: '#a855f7',  /* Purple 500 */
+              600: '#9333ea',  /* Purple 600 */
+              900: '#581c87',  /* Purple 900 */
+            }
+          }
+        },
+      },
+    }
+  </script>
+</head>
+
+<body
+  class="bg-gray-50 text-gray-900 h-screen overflow-hidden dark:bg-gray-950 dark:text-gray-100 transition-colors duration-300">
+  <div id="root" class="h-full"></div>
+  <script type="module" src="/src/main.tsx"></script>
+</body>
+
+</html>

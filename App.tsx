@@ -166,7 +166,7 @@ const App: React.FC = () => {
         config.characterBible,
         config.ragEntries
       );
-      saveBlob(`${fileName.replace(/\.[^/.]+$/, "")}_World.zip`, blob);
+      saveBlob(`${fileName.replace(/\.[^/.]+$/, "")}_World.lumina`, blob);
     } catch (e) {
       alert("Export failed: " + e);
     }

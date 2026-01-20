@@ -220,7 +220,7 @@ const GlossarySidebar: React.FC<Props> = ({
             <div className="bg-gray-50 dark:bg-gray-900/50 p-3 rounded-lg border border-gray-100 dark:border-gray-800 mb-4">
               <p className="text-[10px] text-gray-400 dark:text-gray-500 uppercase font-bold mb-2">Zarządzanie Światem (Saga)</p>
               <div className="flex gap-2">
-                <button onClick={onExportWorld} className="flex-1 flex items-center justify-center gap-1 bg-white dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 text-brand-700 dark:text-brand-400 py-1.5 rounded text-xs border border-gray-200 dark:border-gray-700 transition-colors shadow-sm font-medium" title="Pobierz pełną bazę (Glosariusz + Postacie + RAG) jako .zip">
+                <button onClick={onExportWorld} className="flex-1 flex items-center justify-center gap-1 bg-white dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 text-brand-700 dark:text-brand-400 py-1.5 rounded text-xs border border-gray-200 dark:border-gray-700 transition-colors shadow-sm font-medium" title="Pobierz pełną bazę (Glosariusz + Postacie + RAG) jako .lumina">
                   <FileJson size={12} /> Eksportuj Świat
                 </button>
                 <label className="flex-1 flex items-center justify-center gap-1 bg-brand-600 dark:bg-brand-600 hover:bg-brand-700 dark:hover:bg-brand-500 text-white py-1.5 rounded text-xs transition-colors cursor-pointer shadow-sm font-medium" title="Wczytaj bazę z pliku .lumina, .zip lub .json">

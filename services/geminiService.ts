@@ -173,8 +173,17 @@ export const extractGlossaryPairs = async (
   const targetModel = model || 'gpt-4o';
 
   const systemPrompt = `Compare Source and Translation. Identify and extract Proper Nouns/Entities (Characters, Places, Artifacts). 
-  Return JSON: { "items": [{ "term": "Original Name", "translation": "Polish Name", "category": "character"|"location"|"other", "description": "Context" }] }.
-  IMPORTANT: Only include terms where the translation is a specific proper noun, not generic words.`;
+  Return JSON: { "items": [{ "term": "Original Name", "translation": "Polish Name", "category": "character"|"location"|"other", "description": "Context", "gender": "male"|"female"|"neutral"|"plural" }] }.
+  
+  CRITICAL INSTRUCTIONS FOR POLISH:
+  1. **NOMINATIVE CASE ONLY**: The 'translation' field MUST be in the NOMINATIVE CASE (Mianownik), singular form.
+     - Example: If text has "Geralta", output "Geralt".
+     - Example: If text has "Ciri", output "Ciri".
+     - Example: If text has "Wiedźmina", output "Wiedźmin".
+  2. **GENDER DETECTION**: Infer gender carefully from context (pronouns he/she, titles like Mr/Mrs/King/Queen).
+  3. **NO INFLECTIONS**: Do not create separate entries for inflected forms. Map them all to the single Nominative base.
+  4. **Proper Nouns Only**: Do not extract common words unless they are capitalized specific entities.
+  5. **POLISH DESCRIPTIONS**: The 'description' field MUST be written in POLISH.`;
 
   const userPrompt = `Source: ${originalText.slice(0, 5000)}\nTranslation: ${translatedText.slice(0, 5000)}\nExisting: ${existingGlossary.map(g => g.term).join(", ")}`;
 
@@ -194,7 +203,8 @@ export const extractGlossaryPairs = async (
       term: p.term,
       translation: p.translation,
       description: p.description || '',
-      category: p.category || 'other'
+      category: p.category || 'other',
+      gender: p.gender // Pass detected gender through
     }));
 
     console.log(`[Auto-Glossary] Found ${items.length} partial terms.`);
