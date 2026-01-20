@@ -1,24 +1,24 @@
 export enum BookGenre {
-  FICTION_LITERARY = 'Literatura Piękna',
-  FICTION_FANTASY = 'Fantastyka / Sci-Fi',
-  FICTION_THRILLER = 'Kryminał / Thriller',
-  NON_FICTION_BIO = 'Biografia / Wspomnienia',
-  NON_FICTION_ACADEMIC = 'Akademicka / Edukacyjna',
-  YOUNG_ADULT = 'Literatura Młodzieżowa (YA)',
-  ROMANCE = 'Romans',
-  HISTORICAL_FICTION = 'Powieść Historyczna',
-  CHILDREN = 'Dziecięca',
-  REPORTAGE = 'Reportaż',
-  POPULAR_SCIENCE = 'Popularnonaukowa',
-  SELF_HELP = 'Poradnik / Rozwój Osobisty',
-  PSYHOLOGY = 'Psychologia',
-  PHILOSOPHY = 'Filozodia',
-  BUISNESS = 'Biznes / Ekonomia'
-  TECHNOLOGY = 'Technolofia / IT',
-  RELIGION = 'Religia',
-  TRAVEL = 'Podróże',
-  COOKING = 'Kulinaria',
-  HEALTH = 'Zdrowie / Medycyna'
+  FICTION_LITERARY = "Literatura Piękna",
+  FICTION_FANTASY = "Fantastyka / Sci-Fi",
+  FICTION_THRILLER = "Kryminał / Thriller",
+  NON_FICTION_BIO = "Biografia / Wspomnienia",
+  NON_FICTION_ACADEMIC = "Akademicka / Edukacyjna",
+  YOUNG_ADULT = "Literatura Młodzieżowa (YA)",
+  ROMANCE = "Romans",
+  HISTORICAL_FICTION = "Powieść Historyczna",
+  CHILDREN = "Dziecięca",
+  REPORTAGE = "Reportaż",
+  POPULAR_SCIENCE = "Popularnonaukowa",
+  SELF_HELP = "Poradnik / Rozwój Osobisty",
+  PSYHOLOGY = "Psychologia",
+  PHILOSOPHY = "Filozodia",
+  BUISNESS = "Biznes / Ekonomia",
+  TECHNOLOGY = "Technolofia / IT",
+  RELIGION = "Religia",
+  TRAVEL = "Podróże",
+  COOKING = "Kulinaria",
+  HEALTH = "Zdrowie / Medycyna",
 }
 
 export interface GlossaryItem {
@@ -26,14 +26,14 @@ export interface GlossaryItem {
   term: string;
   translation: string;
   description?: string; // e.g., "Main character", "City name"
-  category: 'character' | 'location' | 'event' | 'object' | 'other';
+  category: "character" | "location" | "event" | "object" | "other";
 }
 
 export interface CharacterTrait {
   id: string;
   name: string; // The character name in Source
   polishName: string; // The character name in Target (Polish)
-  gender: 'male' | 'female' | 'neutral' | 'plural';
+  gender: "male" | "female" | "neutral" | "plural";
   age?: string; // e.g. "Teenager", "Elderly", "Child"
   speechStyle?: string; // e.g. "Formal", "Slang", "Archaic", "Stutters"
   role?: string; // e.g. "Protagonist", "Antagonist"
@@ -61,7 +61,7 @@ export interface ChunkData {
   id: number;
   originalText: string;
   translatedText: string | null;
-  status: 'pending' | 'processing' | 'completed' | 'error';
+  status: "pending" | "processing" | "completed" | "error";
   errorMsg?: string;
   sourceFileName?: string; // To track which chapter/file this chunk belongs to
 }
@@ -84,4 +84,5 @@ export interface RawFile {
   content: string;
 }
 
-export type AppStage = 'upload' | 'config' | 'processing' | 'review';
+export type AppStage = "upload" | "config" | "processing" | "review";
+
