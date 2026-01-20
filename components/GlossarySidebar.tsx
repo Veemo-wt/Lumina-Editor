@@ -10,6 +10,8 @@ interface Props {
   onRemoveCharacter: (id: string) => void;
   onImportGlossary: (items: GlossaryItem[]) => void;
   onImportBible: (items: CharacterTrait[]) => void;
+  onExportWorld: () => void;
+  onImportWorld: (file: File) => void;
 }
 
 const GlossarySidebar: React.FC<Props> = ({ 
@@ -19,7 +21,9 @@ const GlossarySidebar: React.FC<Props> = ({
   onRemoveGlossary, 
   onRemoveCharacter,
   onImportGlossary,
-  onImportBible
+  onImportBible,
+  onExportWorld,
+  onImportWorld
 }) => {
   const [isOpen, setIsOpen] = useState(true);
   const [activeTab, setActiveTab] = useState<'glossary' | 'bible'>('glossary');
@@ -65,60 +69,11 @@ const GlossarySidebar: React.FC<Props> = ({
     }
   };
 
-  const handleExportWorld = () => {
-    const worldData = {
-      createdAt: new Date().toISOString(),
-      version: "1.0",
-      project: "Lumina World Knowledge Pack",
-      glossary: glossaryItems,
-      characterBible: characterBible
-    };
-
-    const jsonStr = JSON.stringify(worldData, null, 2);
-    const blob = new Blob([jsonStr], { type: 'application/json' });
-    const link = document.createElement("a");
-    if (link.download !== undefined) {
-      const url = URL.createObjectURL(blob);
-      link.setAttribute("href", url);
-      link.setAttribute("download", "world_knowledge_pack.json");
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-    }
-  };
-
-  const handleImportWorld = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImportWorldFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     setFileImportError(null);
-
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      try {
-        const text = event.target?.result as string;
-        const json = JSON.parse(text);
-
-        let importedGlossaryCount = 0;
-        let importedBibleCount = 0;
-
-        if (Array.isArray(json.glossary)) {
-           onImportGlossary(json.glossary);
-           importedGlossaryCount = json.glossary.length;
-        }
-
-        if (Array.isArray(json.characterBible)) {
-           onImportBible(json.characterBible);
-           importedBibleCount = json.characterBible.length;
-        }
-
-        if (importedGlossaryCount === 0 && importedBibleCount === 0) {
-          setFileImportError("Nie znaleziono poprawnych danych w pliku JSON.");
-        }
-      } catch (err) {
-        setFileImportError("Błąd parsowania pliku JSON. Upewnij się, że to poprawny 'World Knowledge Pack'.");
-      }
-    };
-    reader.readAsText(file);
+    onImportWorld(file);
     e.target.value = '';
   };
 
@@ -169,7 +124,7 @@ const GlossarySidebar: React.FC<Props> = ({
 
   const getCategoryColor = (cat: string) => {
     switch(cat) {
-      case 'character': return 'bg-purple-100 text-purple-700QPborder-purple-200 dark:bg-purple-900/30 dark:text-purple-300 dark:border-purple-800';
+      case 'character': return 'bg-purple-100 text-purple-700 border-purple-200 dark:bg-purple-900/30 dark:text-purple-300 dark:border-purple-800';
       case 'location': return 'bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-300 dark:border-emerald-800';
       case 'event': return 'bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-800';
       case 'object': return 'bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-800';
@@ -227,12 +182,12 @@ const GlossarySidebar: React.FC<Props> = ({
             <div className="bg-gray-50 dark:bg-gray-900/50 p-3 rounded-lg border border-gray-100 dark:border-gray-800 mb-4">
               <p className="text-[10px] text-gray-400 dark:text-gray-500 uppercase font-bold mb-2">Zarządzanie Światem (Saga)</p>
               <div className="flex gap-2">
-                 <button onClick={handleExportWorld} className="flex-1 flex items-center justify-center gap-1 bg-white dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 text-brand-700 dark:text-brand-400 py-1.5 rounded text-xs border border-gray-200 dark:border-gray-700 transition-colors shadow-sm font-medium" title="Pobierz pełną bazę (Glosariusz + Postacie) w JSON">
+                 <button onClick={onExportWorld} className="flex-1 flex items-center justify-center gap-1 bg-white dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 text-brand-700 dark:text-brand-400 py-1.5 rounded text-xs border border-gray-200 dark:border-gray-700 transition-colors shadow-sm font-medium" title="Pobierz pełną bazę (Glosariusz + Postacie + RAG) jako .lumina">
                    <FileJson size={12} /> Eksportuj Świat
                  </button>
-                 <label className="flex-1 flex items-center justify-center gap-1 bg-brand-600 dark:bg-brand-600 hover:bg-brand-700 dark:hover:bg-brand-500 text-white py-1.5 rounded text-xs transition-colors cursor-pointer shadow-sm font-medium" title="Wczytaj bazę z pliku JSON">
+                 <label className="flex-1 flex items-center justify-center gap-1 bg-brand-600 dark:bg-brand-600 hover:bg-brand-700 dark:hover:bg-brand-500 text-white py-1.5 rounded text-xs transition-colors cursor-pointer shadow-sm font-medium" title="Wczytaj bazę z pliku .lumina lub .json">
                    <Upload size={12} /> Importuj Świat
-                   <input type="file" accept=".json" className="hidden" onChange={handleImportWorld} />
+                   <input type="file" accept=".json,.lumina,.zip" className="hidden" onChange={handleImportWorldFile} />
                  </label>
               </div>
             </div>

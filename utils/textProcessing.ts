@@ -1,4 +1,4 @@
-import { ChunkData, GlossaryItem, RawFile } from '../types';
+import { ChunkData, GlossaryItem, CharacterTrait, RawFile, RagEntry } from '../types';
 import * as pdfjsLib from 'pdfjs-dist';
 import mammoth from 'mammoth';
 import { Document, Packer, Paragraph, TextRun } from 'docx';
@@ -6,6 +6,73 @@ import JSZip from 'jszip';
 
 // Initialize PDF.js worker
 pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://esm.sh/pdfjs-dist@4.0.379/build/pdf.worker.min.mjs';
+
+export const createWorldPackage = async (
+  glossary: GlossaryItem[],
+  characterBible: CharacterTrait[],
+  ragEntries: RagEntry[]
+): Promise<Blob> => {
+  const zip = new JSZip();
+  
+  // 1. Metadata JSON (Lightweight)
+  const metadata = {
+    version: "2.0",
+    createdAt: new Date().toISOString(),
+    project: "Lumina World Knowledge Pack",
+    glossary,
+    characterBible
+  };
+  zip.file("metadata.json", JSON.stringify(metadata, null, 2));
+
+  // 2. RAG Database (Heavy)
+  // We separate it to allow partial imports if needed in future
+  zip.file("rag_vector_store.json", JSON.stringify(ragEntries));
+
+  return await zip.generateAsync({ type: "blob" });
+};
+
+export const parseWorldPackage = async (file: File): Promise<{
+  glossary: GlossaryItem[];
+  characterBible: CharacterTrait[];
+  ragEntries: RagEntry[];
+}> => {
+  const zip = new JSZip();
+  const loadedZip = await zip.loadAsync(file);
+
+  let glossary: GlossaryItem[] = [];
+  let characterBible: CharacterTrait[] = [];
+  let ragEntries: RagEntry[] = [];
+
+  // 1. Parse Metadata
+  if (loadedZip.file("metadata.json")) {
+    const metaStr = await loadedZip.file("metadata.json")?.async("string");
+    if (metaStr) {
+      const meta = JSON.parse(metaStr);
+      glossary = meta.glossary || [];
+      characterBible = meta.characterBible || [];
+    }
+  } 
+  // Legacy support for plain JSON exports (if any)
+  else if (file.name.endsWith('.json')) {
+     const text = await file.text();
+     const json = JSON.parse(text);
+     return { 
+       glossary: json.glossary || [], 
+       characterBible: json.characterBible || [], 
+       ragEntries: [] 
+     };
+  }
+
+  // 2. Parse RAG Store
+  if (loadedZip.file("rag_vector_store.json")) {
+    const ragStr = await loadedZip.file("rag_vector_store.json")?.async("string");
+    if (ragStr) {
+      ragEntries = JSON.parse(ragStr);
+    }
+  }
+
+  return { glossary, characterBible, ragEntries };
+};
 
 /**
  * Robust length-based splitter.

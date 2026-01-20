@@ -1,4 +1,3 @@
-
 import OpenAI from 'openai';
 import { BookGenre, GlossaryItem, CharacterTrait } from '../types';
 
@@ -9,6 +8,7 @@ interface TranslationRequest {
   tone: string;
   glossary: GlossaryItem[];
   characterBible?: CharacterTrait[];
+  ragContext?: string; // New RAG context
   apiKey: string;
   model: string;
 }
@@ -34,24 +34,18 @@ const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 /**
  * Filter context items to only include those relevant to the text.
- * This prevents context window overflow for massive glossaries.
  */
 const filterRelevantContext = (text: string, glossary: GlossaryItem[], bible: CharacterTrait[]) => {
   const lowerText = text.toLowerCase();
   
-  // Naive but effective keyword matching. 
-  // For production, consider stemming or more advanced NLP if token limits are extremely tight.
   const relevantGlossary = glossary.filter(item => {
     const term = item.term.toLowerCase();
-    // Check if term exists in text. 
-    // Adding regex boundary checks (\b) helps avoid partial word matches 
-    // but might miss some declined forms in Polish if checking translation side (we check Source here).
     return lowerText.includes(term); 
   });
 
   const relevantBible = bible.filter(char => {
+    // Fixed typo: constcF -> const
     const name = char.name.toLowerCase();
-    // Usually names are distinct enough
     return lowerText.includes(name);
   });
 
@@ -59,71 +53,53 @@ const filterRelevantContext = (text: string, glossary: GlossaryItem[], bible: Ch
 };
 
 export const translateChunk = async (request: TranslationRequest): Promise<TranslationResult> => {
-  const { chunkText, lookbackText, genre, tone, glossary, characterBible, apiKey, model } = request;
+  const { chunkText, lookbackText, genre, tone, glossary, characterBible, ragContext, apiKey, model } = request;
   const client = createClient(apiKey);
   const targetModel = model || 'gpt-4o';
 
-  // --- SMART CONTEXT FILTERING ---
-  // To avoid 400 Bad Request (Context Window Limit), we only send relevant data.
-  // We check both the current chunk and the lookback text for references.
   const combinedContextText = lookbackText + "\n" + chunkText;
   const { relevantGlossary, relevantBible } = filterRelevantContext(combinedContextText, glossary, characterBible || []);
 
   const glossaryString = relevantGlossary
-    .map(g => `
-      TERM: "${g.term}"
-      TRANSLATION: "${g.translation}"
-      TYPE: ${g.category}
-      CONTEXT/TRAITS: ${g.description || 'No specific context.'}
-    `.trim())
-    .join('\n---\n');
+    .map(g => `TERM: "${g.term}" -> "${g.translation}" (${g.category}) - ${g.description || ''}`)
+    .join('\n');
 
   const bibleString = relevantBible
-    .map(c => `
-      CHARACTER: "${c.name}" (PL: ${c.polishName})
-      GENDER: ${c.gender}
-      AGE: ${c.age || 'N/A'}
-      SPEECH STYLE: ${c.speechStyle || 'Standard'}
-      NOTES: ${c.notes || ''}
-    `.trim())
-    .join('\n---\n');
+    .map(c => `CHAR: "${c.name}" -> PL: "${c.polishName}" (${c.gender}, ${c.speechStyle || 'Normal'}) - ${c.notes || ''}`)
+    .join('\n');
 
+  // --- SYSTEM PROMPT CONSTRUCTION ---
   const systemPrompt = `
     You are a master literary translator specializing in translating high-quality literature into Polish.
     
-    **Context & Constraints:**
+    **PROJECT SETTINGS:**
     - Genre: ${genre}
-    - Desired Tone/Style: ${tone}
-    - Target Audience: Polish native speakers (Publishing House Standard).
+    - Tone/Style: ${tone}
     
-    **Critical Requirements:**
-    1. **Typography:** You MUST use Polish typographic standards (e.g., „low quotes” for opening, ”high quotes” for closing). Use em-dashes (—) for dialogue.
-    2. **Continuity:** Use the provided Lookback Context ONLY for flow, tone, and character voice continuity. Do not translate it.
-    3. **Glossary & Rich Context:** 
-       - Strictly adhere to the provided terms below.
-       - **GLOSSARY PRIORITY:** If multiple terms in the glossary could apply to a phrase, ALWAYS prioritize the longer, more specific term.
-       - **CRITICAL:** Use the "CONTEXT/TRAITS" provided in the glossary to inform your translation choices. 
-       
-    **CHARACTER CONSISTENCY (Relevant to this section):**
-    ${bibleString.length > 0 ? bibleString : 'No specific character instructions for this section.'}
+    **CORE INSTRUCTIONS:**
+    1. **Typography:** Use Polish standards (e.g. „quotes”, em-dashes for dialogue).
+    2. **Continuity:** Use 'Lookback' only for context. Do NOT translate it.
+    3. **Consistency:** adhere strictly to Glossary and Character Bible.
+
+    ${ragContext ? `
+    **SIMILAR PAST TRANSLATIONS (RAG MEMORY):**
+    Use these pairs to maintain stylistic consistency with previous chapters:
+    ${ragContext}
+    ` : ''}
+
+    **CHARACTER BIBLE (Relevant):**
+    ${bibleString.length > 0 ? bibleString : '(No specific characters found)'}
     
-    **Glossary Data (Relevant to this section):**
-    ${glossaryString.length > 0 ? glossaryString : 'No specific glossary terms found for this section.'}
+    **GLOSSARY (Relevant):**
+    ${glossaryString.length > 0 ? glossaryString : '(No specific terms found)'}
   `;
 
   const userContent = `
-    **Input Data:**
-    
-    --- START LOOKBACK CONTEXT (Read-only for flow) ---
+    **LOOKBACK (Context only):**
     ${lookbackText}
-    --- END LOOKBACK CONTEXT ---
 
-    --- START TEXT TO TRANSLATE ---
+    **TRANSLATE THIS TEXT:**
     ${chunkText}
-    --- END TEXT TO TRANSLATE ---
-
-    **Output:**
-    Provide ONLY the translated Polish text. No markdown blocks, no intro/outro.
   `;
 
   const temperature = targetModel.includes('mini') ? 1 : 0.3;
@@ -155,8 +131,6 @@ export const translateChunk = async (request: TranslationRequest): Promise<Trans
         attempt++;
         continue;
       }
-      // If error is context length, we might want to retry with 0 context? 
-      // For now, just throw the clearer error.
       throw new Error(error?.message || "Failed to translate chunk.");
     }
   }
@@ -167,32 +141,9 @@ export const detectGlossaryTerms = async (text: string, apiKey: string, model: s
   const client = createClient(apiKey);
   const targetModel = model || 'gpt-4o';
   
-  const systemPrompt = `
-    You are a Senior Literary Editor creating a "Series Bible" for a translation project.
-    
-    **YOUR GOAL:** Identify specific Proper Nouns and unique fictional terminology that requires consistent translation.
-    
-    **STRICT EXCLUSION RULES (DO NOT EXTRACT):**
-    - DO NOT extract common nouns (e.g., "flu", "doctor", "kitchen", "sword", "king", "ship") unless they are part of a specific Proper Name (e.g. "The Black Pearl").
-    - DO NOT extract medical conditions, weather, or standard emotions.
-    - DO NOT extract verbs or common adjectives.
-    
-    **INCLUSION RULES (EXTRACT THESE):**
-    1. **CHARACTERS:** Specific names of people or unique creatures (e.g. "Gandalf", "Wookies").
-    2. **LOCATIONS:** Specific named places (e.g. "Winterfell", "The Green Dragon Inn").
-    3. **OBJECTS:** Named artifacts or unique technology (e.g. "Excalibur", "Flux Capacitor").
-    4. **EVENTS:** Specific named historical/plot events (e.g. "The Red Wedding").
-    
-    Return the result as a JSON object with a list of items.
-  `;
+  const systemPrompt = `You are a Senior Literary Editor. Extract Proper Nouns (Characters, Locations, Artifacts) from the text. Return JSON: { "items": [{ "term", "translation", "category", "description" }] }`;
   
-  const userPrompt = `
-    Analyze this text excerpt (first 15k chars): 
-    "${text.slice(0, 15000)}..."
-    
-    Return JSON format: 
-    { "items": [{ "term": "English Term", "translation": "Suggested Polish Translation", "category": "character" | "location" | "event" | "object", "description": "Brief context" }] }
-  `;
+  const userPrompt = `Analyze:\n"${text.slice(0, 15000)}..."`;
 
   try {
     const response = await client.chat.completions.create({
@@ -221,28 +172,9 @@ export const extractGlossaryPairs = async (
   const client = createClient(apiKey);
   const targetModel = model || 'gpt-4o';
   
-  const systemPrompt = `
-    You are a Translation Consistency Assistant.
-    Compare the Source text and the Translation.
-    
-    **TASK:** Identify **NEW Proper Nouns** (Characters, Places, Named Artifacts) that appeared in this text but are NOT in the 'Existing Terms' list.
-    
-    **RULES:**
-    - IGNORE common words (flu, car, house, running).
-    - IGNORE standard vocabulary translations.
-    - ONLY return significant Named Entities that need to be saved for future consistency.
-    
-    Return JSON.
-  `;
+  const systemPrompt = `Compare Source and Translation. Identify NEW Proper Nouns/Entities consistent with existing glossary. Return JSON { items: [] }.`;
   
-  const userPrompt = `
-    Source: ${originalText.slice(0, 5000)}
-    Translation: ${translatedText.slice(0, 5000)}
-    
-    Existing Terms (Ignore these): ${existingGlossary.map(g => g.term).join(", ")}
-    
-    Return JSON: { "items": [{ "term", "translation", "category", "description" }] }
-  `;
+  const userPrompt = `Source: ${originalText.slice(0, 5000)}\nTranslation: ${translatedText.slice(0, 5000)}\nExisting: ${existingGlossary.map(g => g.term).join(", ")}`;
 
   try {
     const response = await client.chat.completions.create({

@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { AppStage, TranslationConfig, BookGenre, ChunkData, RawFile } from './types';
-import { chunkText, getLookback, saveBlob, generateDocxBlob } from './utils/textProcessing';
+import { chunkText, getLookback, saveBlob, generateDocxBlob, createWorldPackage, parseWorldPackage } from './utils/textProcessing';
 import { translateChunk } from './services/geminiService';
+import { findSimilarSegments, createRagEntry } from './services/ragService';
 import { saveSession, loadSession, clearSession } from './utils/storage';
 import { calculateSessionCost } from './utils/models';
 import FileUpload from './components/FileUpload';
@@ -18,6 +19,7 @@ const DEFAULT_CONFIG: TranslationConfig = {
   tone: 'Wierny stylowi oryginału',
   glossary: [],
   characterBible: [],
+  ragEntries: [],
   chunkSize: 40000, 
   lookbackSize: 10000, 
   chapterPattern: '(Chapter|Rozdział|Part)\\s+\\d+'
@@ -46,6 +48,7 @@ const App: React.FC = () => {
   const [sessionStartChunkIdx, setSessionStartChunkIdx] = useState<number>(0);
   const [estimatedTimeRemaining, setEstimatedTimeRemaining] = useState<string>('--:--');
 
+  // Fixed typo: constSF -> const
   const configRef = useRef(config);
 
   useEffect(() => {
@@ -61,7 +64,8 @@ const App: React.FC = () => {
           setFileName(saved.fileName || '');
           setConfig(prev => ({
             ...DEFAULT_CONFIG,
-            ...saved.config
+            ...saved.config,
+            ragEntries: saved.config?.ragEntries || []
           }));
           setChunks(saved.chunks || []);
           setCurrentChunkIdx(saved.currentChunkIdx || 0);
@@ -148,6 +152,36 @@ const App: React.FC = () => {
     setEstimatedTimeRemaining(`${minutes}m ${seconds}s`);
   };
 
+  // --- EXPORT WORLD HANDLER ---
+  const handleExportWorld = async () => {
+    try {
+      const blob = await createWorldPackage(
+        config.glossary, 
+        config.characterBible, 
+        config.ragEntries
+      );
+      saveBlob(`${fileName.replace(/\.[^/.]+$/, "")}_World.lumina`, blob);
+    } catch (e) {
+      alert("Export failed: " + e);
+    }
+  };
+
+  // --- IMPORT WORLD HANDLER ---
+  const handleImportWorld = async (file: File) => {
+    try {
+      const { glossary, characterBible, ragEntries } = await parseWorldPackage(file);
+      setConfig(prev => ({
+        ...prev,
+        glossary: [...prev.glossary, ...glossary], // Merge logic can be smarter
+        characterBible: [...prev.characterBible, ...characterBible],
+        ragEntries: [...prev.ragEntries, ...ragEntries]
+      }));
+      alert(`Wczytano: ${glossary.length} terminów, ${characterBible.length} postaci, ${ragEntries.length} segmentów pamięci.`);
+    } catch (e) {
+      alert("Import failed. Ensure file is valid .lumina package or .json.");
+    }
+  };
+
   useEffect(() => {
     let isMounted = true;
     const processNextChunk = async () => {
@@ -169,11 +203,31 @@ const App: React.FC = () => {
         setChunks(prev => prev.map(c => c.id === chunk.id ? { ...c, status: 'processing' } : c));
         setProcessingError(null);
 
+        // 1. Prepare Context (Lookback)
         let lookbackText = "";
         if (currentChunkIdx > 0) {
            lookbackText = getLookback(chunks[currentChunkIdx - 1].originalText, configRef.current.lookbackSize);
         }
 
+        // 2. RAG Retrieval (Vector Search)
+        let ragContext = "";
+        try {
+           const similar = await findSimilarSegments(
+             chunk.originalText, 
+             configRef.current.ragEntries, 
+             configRef.current.apiKey
+           );
+           
+           if (similar.length > 0) {
+             ragContext = similar.map(s => 
+               `SOURCE: "${s.sourceText.slice(0, 150)}..."\nTRANSLATION: "${s.translatedText.slice(0, 150)}..."`
+             ).join("\n---\n");
+           }
+        } catch (ragErr) {
+          console.warn("RAG Search failed, continuing without history", ragErr);
+        }
+
+        // 3. Translation
         const result = await translateChunk({
           chunkText: chunk.originalText,
           lookbackText,
@@ -181,13 +235,14 @@ const App: React.FC = () => {
           tone: configRef.current.tone,
           glossary: configRef.current.glossary,
           characterBible: configRef.current.characterBible,
+          ragContext, // Pass retrieved context
           apiKey: configRef.current.apiKey,
           model: configRef.current.model
         });
 
         if (!isMounted) return;
 
-        // Update Usage stats from response
+        // 4. Update Stats
         const cost = calculateSessionCost(configRef.current.model, result.usage.prompt_tokens, result.usage.completion_tokens);
         setSessionUsage(prev => ({
           promptTokens: prev.promptTokens + result.usage.prompt_tokens,
@@ -200,6 +255,24 @@ const App: React.FC = () => {
           status: 'completed', 
           translatedText: result.text 
         } : c));
+
+        // 5. RAG Indexing (Save Result)
+        try {
+          const newEntry = await createRagEntry(
+            chunk.originalText,
+            result.text,
+            configRef.current.apiKey,
+            chunk.sourceFileName || fileName
+          );
+          if (newEntry) {
+            setConfig(prev => ({
+              ...prev,
+              ragEntries: [...prev.ragEntries, newEntry]
+            }));
+          }
+        } catch (idxErr) {
+          console.warn("Failed to index chunk for RAG", idxErr);
+        }
 
         updateETR();
         setCurrentChunkIdx(prev => prev + 1);
@@ -242,6 +315,8 @@ const App: React.FC = () => {
           onRemoveCharacter={(id) => setConfig(prev => ({ ...prev, characterBible: (prev.characterBible || []).filter(c => c.id !== id) }))}
           onImportGlossary={(items) => setConfig(prev => ({ ...prev, glossary: [...prev.glossary, ...items] }))}
           onImportBible={(items) => setConfig(prev => ({ ...prev, characterBible: [...(prev.characterBible || []), ...items] }))}
+          onExportWorld={handleExportWorld}
+          onImportWorld={handleImportWorld}
         />
       )}
 

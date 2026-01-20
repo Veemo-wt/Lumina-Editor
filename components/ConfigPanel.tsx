@@ -1,9 +1,9 @@
 import React, { useMemo, useState } from 'react';
 import { BookGenre, TranslationConfig, CharacterTrait } from '../types';
 import { 
-  Settings, Sliders, Key, Box, Regex, DollarSign, Calculator, 
-  HelpCircle, FileText, BookOpen, Feather, ChevronDown, Check,
-  Zap, Brain, Sparkles, LayoutTemplate, Users
+  Settings, Sliders, Key, Box, Regex, 
+  FileText, BookOpen, Feather, ChevronDown, Check,
+  Zap, Brain, Sparkles, LayoutTemplate, Users, AlertOctagon
 } from 'lucide-react';
 
 interface Props {
@@ -20,6 +20,7 @@ interface ModelDef {
   input: number; // Price per 1M
   cachedInput: number; // Price per 1M
   output: number; // Price per 1M
+  maxOutput: number; // Max output tokens
   context: string;
   desc: string;
   tags: ('balanced' | 'smart' | 'fast' | 'next-gen')[];
@@ -32,16 +33,18 @@ const MODELS_DB: ModelDef[] = [
     id: 'gpt-5.2', 
     name: 'GPT-5.2', 
     input: 1.75, cachedInput: 0.85, output: 14.00, 
+    maxOutput: 128000,
     context: '400k', 
-    desc: 'Najnowszy flagowiec. Bardzo wysoka gęstość tokenów (więcej treści/token) i świetna prędkość.',
+    desc: 'Flagowiec. 272k Input / 128k Output. Idealny do dużych chunków.',
     tags: ['balanced', 'next-gen']
   },
   { 
     id: 'gpt-5.1', 
     name: 'GPT-5.1', 
     input: 1.25, cachedInput: 0.60, output: 10.00, 
+    maxOutput: 128000,
     context: '400k', 
-    desc: 'Standard wydawniczy. Stabilny, nieco wolniejszy od 5.2, ale tańszy.',
+    desc: 'Wysoka wydajność. Limit outputu 128k pozwala na stabilną pracę.',
     tags: ['balanced']
   },
   
@@ -50,26 +53,29 @@ const MODELS_DB: ModelDef[] = [
     id: 'gpt-5.2-pro', 
     name: 'GPT-5.2 Pro', 
     input: 21.00, cachedInput: 10.50, output: 168.00, 
+    maxOutput: 128000,
     context: '400k', 
-    desc: 'Potężny silnik wnioskowania. Bardzo wolny, ale wyłapuje najdrobniejsze niuanse kulturowe.',
+    desc: 'Najwyższa jakość literacka. Wolny, ale bardzo dokładny.',
     tags: ['smart', 'next-gen']
   },
-  { 
-    id: 'gpt-5-pro', 
-    name: 'GPT-5 Pro', 
-    input: 15.00, cachedInput: 7.50, output: 120.00, 
-    context: '400k', 
-    desc: 'Poprzednia generacja PRO. Wysoka jakość, ale mniej efektywna tokenowo niż 5.2.',
-    tags: ['smart']
-  },
 
-  // --- SPECIALIZED ---
+  // --- LEGACY / STABLE ---
   { 
-    id: 'gpt-4.1', 
-    name: 'GPT-4.1', 
-    input: 2.00, cachedInput: 0.50, output: 8.00, 
-    context: '1M', 
-    desc: 'Gigantyczny kontekst (1M), ale mały limit Outputu (wymaga mniejszych chunków).',
+    id: 'gpt-4o', 
+    name: 'GPT-4o', 
+    input: 2.50, cachedInput: 1.25, output: 10.00, 
+    maxOutput: 4096, // Conservative default
+    context: '128k', 
+    desc: 'Klasyk. Uwaga: Mały limit outputu (~4k tokenów), wymaga małych chunków.',
+    tags: ['balanced']
+  },
+  { 
+    id: 'gpt-4o-2024-08-06', 
+    name: 'GPT-4o (16k)', 
+    input: 2.50, cachedInput: 1.25, output: 10.00, 
+    maxOutput: 16384,
+    context: '128k', 
+    desc: 'Wersja ze zwiększonym limitem outputu do 16k tokenów.',
     tags: ['balanced']
   },
 
@@ -78,8 +84,9 @@ const MODELS_DB: ModelDef[] = [
     id: 'gpt-5-mini', 
     name: 'GPT-5 Mini', 
     input: 0.25, cachedInput: 0.10, output: 2.00, 
+    maxOutput: 64000,
     context: '400k', 
-    desc: 'Błyskawiczny i tani. Mniejsza subtelność literacka, dobra do literatury faktu.',
+    desc: 'Szybki i tani. Dobry kompromis.',
     tags: ['fast']
   },
 ];
@@ -148,45 +155,48 @@ const ConfigPanel: React.FC<Props> = ({ config, onChange, onStart, fileName, cha
     });
   };
 
-  // Cost Estimation Logic
-  const { estimatedCost, estimatedCostCached, modelInfo } = useMemo(() => {
+  // Model Info & Safety Logic
+  const { modelInfo, chunkStatus, safetyWarning } = useMemo(() => {
     const inputModel = config.model.toLowerCase().trim();
     
-    // Find model definition or fallback to generic GPT-4o pricing
+    // Find model definition
     let modelDef = MODELS_DB.find(m => m.id === inputModel);
     
-    // If not found exactly, try fuzzy match or default
+    // Fallback
     if (!modelDef) {
        const fuzzy = MODELS_DB.find(m => inputModel.includes(m.id));
        modelDef = fuzzy || { 
          id: 'custom', name: 'Custom/Unknown', 
          input: 2.50, cachedInput: 1.25, output: 10.00, 
+         maxOutput: 4096, 
          context: '?', desc: 'Ceny domyślne', tags: [] 
        };
     }
 
-    // Token Estimation (1 token ≈ 3.7 chars)
-    const totalTokens = charCount / 3.7;
+    // Safety Checks
+    const estimatedOutputTokens = config.chunkSize / 3.5; 
+    const maxOut = modelDef.maxOutput;
     
-    const inputVolume = totalTokens / 1_000_000;
-    const outputVolume = totalTokens / 1_000_000;
+    let status = { color: 'text-emerald-600 dark:text-emerald-400', text: 'Bezpieczny (Szybki)' };
+    let warning = null;
 
-    // Standard Cost (No Cache)
-    const costStandard = (inputVolume * modelDef.input) + (outputVolume * modelDef.output);
+    if (estimatedOutputTokens > maxOut) {
+       status = { color: 'text-red-600 dark:text-red-400', text: 'KRYTYCZNY: Przekracza limit modelu!' };
+       warning = `Wybrany Chunk (${config.chunkSize} znaków ≈ ${Math.round(estimatedOutputTokens)} tokenów) przekracza limit generowania modelu ${modelDef.name} (${maxOut} tokenów). Tłumaczenie zostanie ucięte. Zmniejsz chunk lub zmień model.`;
+    } 
+    else if (estimatedOutputTokens > maxOut * 0.8) {
+       status = { color: 'text-amber-600 dark:text-amber-400', text: 'Ryzykowny (Blisko limitu)' };
+    }
+    else if (config.chunkSize > 50000) {
+       status = { color: 'text-blue-600 dark:text-blue-400', text: 'Duży Kontekst (GPT-5/High-End)' };
+    }
 
-    // Cached Cost (25% hits on input)
-    const cachedPortion = 0.25;
-    const costCached = 
-      (inputVolume * (1 - cachedPortion) * modelDef.input) + 
-      (inputVolume * cachedPortion * modelDef.cachedInput) + 
-      (outputVolume * modelDef.output);
-
-    return {
-      estimatedCost: costStandard,
-      estimatedCostCached: costCached,
-      modelInfo: modelDef
+    return { 
+      modelInfo: modelDef,
+      chunkStatus: status, 
+      safetyWarning: warning 
     };
-  }, [charCount, config.model]);
+  }, [config.model, config.chunkSize]);
 
   const getTagIcon = (tag: string) => {
     switch(tag) {
@@ -201,8 +211,8 @@ const ConfigPanel: React.FC<Props> = ({ config, onChange, onStart, fileName, cha
   return (
     <div className="max-w-3xl mx-auto my-6 bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-visible relative transition-colors">
       
-      {/* Header & Estimator */}
-      <div className="p-6 border-b border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 flex justify-between items-start transition-colors">
+      {/* Header */}
+      <div className="p-6 border-b border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 flex justify-between items-center transition-colors">
         <div>
            <h2 className="text-xl font-bold text-gray-800 dark:text-gray-100 flex items-center gap-2">
             <Settings size={20} className="text-brand-600 dark:text-brand-500" />
@@ -213,31 +223,6 @@ const ConfigPanel: React.FC<Props> = ({ config, onChange, onStart, fileName, cha
              Plik: <span className="font-mono text-gray-700 dark:text-gray-300 font-medium">{fileName}</span> 
              <span className="bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 text-[10px] px-1.5 py-0.5 rounded-full">{charCount.toLocaleString()} znaków</span>
            </p>
-        </div>
-        
-        {/* Advanced Cost Estimator */}
-        <div className="flex flex-col items-end text-right bg-white dark:bg-gray-900 p-3 rounded-lg border border-emerald-100 dark:border-emerald-900/30 shadow-sm min-w-[200px]">
-           <div className="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase flex items-center gap-1 mb-1">
-             <Calculator size={10}/> Estymacja (100% tekstu)
-           </div>
-           
-           <div className="flex items-baseline gap-2">
-              <div className="text-xl font-mono font-bold text-emerald-600 dark:text-emerald-400 flex items-center" title="Koszt z uwzględnieniem Context Caching">
-                <DollarSign size={16} strokeWidth={3} />
-                {estimatedCostCached < 0.01 ? '< 0.01' : estimatedCostCached.toFixed(2)}
-              </div>
-              {estimatedCostCached !== estimatedCost && (
-                <div className="text-xs text-gray-400 dark:text-gray-500 line-through decoration-red-300 dark:decoration-red-800" title="Koszt standardowy (bez cache)">
-                  ${estimatedCost.toFixed(2)}
-                </div>
-              )}
-           </div>
-           
-           <div className="text-[9px] text-gray-400 dark:text-gray-500 mt-1 text-right leading-tight">
-             Model: <strong>{modelInfo.name}</strong>
-             <br/>
-             In: ${modelInfo.input} (<span className="text-emerald-600 dark:text-emerald-400">${modelInfo.cachedInput}</span>) &bull; Out: ${modelInfo.output} <span className="opacity-70">/1M</span>
-           </div>
         </div>
       </div>
 
@@ -310,12 +295,16 @@ const ConfigPanel: React.FC<Props> = ({ config, onChange, onStart, fileName, cha
                         
                         <p className="text-xs text-gray-500 dark:text-gray-400 leading-snug mb-2">{m.desc}</p>
                         
-                        <div className="flex items-center gap-3 text-[10px]">
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px]">
                            <span className="flex items-center gap-1 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 px-1.5 py-0.5 rounded border border-gray-200 dark:border-gray-600" title="Wielkość kontekstu">
                              <Box size={10} /> {m.context}
                            </span>
-                           <span className="flex items-center gap-1 text-gray-500 dark:text-gray-400">
-                             In: ${m.input} <span className="text-emerald-600 dark:text-emerald-400 font-medium">(${m.cachedInput})</span> / Out: ${m.output}
+                           <span className="flex items-center gap-1 text-gray-500 dark:text-gray-400" title="Limit tokenów wyjściowych">
+                             Max Out: <span className="font-bold text-brand-600 dark:text-brand-400">{m.maxOutput.toLocaleString()}</span>
+                           </span>
+                           <span className="flex items-center gap-1 text-gray-500 dark:text-gray-400 ml-auto" title="Cena za 1M tokenów (bez cache)">
+                             <span className="font-medium text-gray-700 dark:text-gray-300">${m.input} In</span> / 
+                             <span className="font-medium text-gray-700 dark:text-gray-300">${m.output} Out</span>
                            </span>
                         </div>
                       </div>
@@ -467,23 +456,30 @@ const ConfigPanel: React.FC<Props> = ({ config, onChange, onStart, fileName, cha
                   <label className="flex items-center gap-2 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase leading-tight max-w-[65%]">
                     <Sliders size={14} className="flex-shrink-0" /> Limit Znaków (Chunk)
                   </label>
-                  <span className="text-xs font-mono font-bold text-brand-700 dark:text-brand-300 bg-brand-50 dark:bg-brand-900/30 px-2 py-1 rounded whitespace-nowrap">
+                  <span className={`text-xs font-mono font-bold px-2 py-1 rounded whitespace-nowrap border ${safetyWarning ? 'bg-red-50 text-red-600 border-red-200' : 'bg-brand-50 text-brand-700 border-transparent dark:bg-brand-900/30 dark:text-brand-300'}`}>
                     {config.chunkSize.toLocaleString()} znaków
                   </span>
               </div>
               <input 
                 type="range" 
-                min="10000" 
-                max="70000" 
+                min="5000" 
+                max="100000" 
                 step="5000"
                 value={config.chunkSize} 
                 onChange={handleChunkSizeChange}
-                className="w-full h-2 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer"
+                className={`w-full h-2 rounded-lg appearance-none cursor-pointer ${safetyWarning ? 'bg-red-200 dark:bg-red-900/50' : 'bg-gray-200 dark:bg-gray-700'}`}
               />
-              <div className="flex justify-between text-[10px] text-gray-400 dark:text-gray-500 mt-1">
-                 <span>10k (Szybciej)</span>
-                 <span>70k (Większy kontekst)</span>
+              <div className="flex justify-between items-center mt-2">
+                 <span className={`text-[10px] font-bold ${chunkStatus.color} flex items-center gap-1`}>
+                   {safetyWarning && <AlertOctagon size={12}/>}
+                   {chunkStatus.text}
+                 </span>
               </div>
+              {safetyWarning && (
+                <div className="mt-2 text-[10px] text-red-500 bg-red-50 dark:bg-red-900/20 p-2 rounded border border-red-100 dark:border-red-800 leading-snug">
+                  {safetyWarning}
+                </div>
+              )}
            </div>
 
            {/* Lookback Size */}
@@ -499,15 +495,15 @@ const ConfigPanel: React.FC<Props> = ({ config, onChange, onStart, fileName, cha
               <input 
                 type="range" 
                 min="5000" 
-                max="15000" 
+                max="30000" 
                 step="1000"
                 value={config.lookbackSize} 
                 onChange={handleLookbackChange}
                 className="w-full h-2 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer"
               />
-               <div className="flex justify-between text-[10px] text-gray-400 dark:text-gray-500 mt-1">
+               <div className="flex justify-between text-[10px] text-gray-400 dark:text-gray-500 mt-2">
                  <span>5k (Minimalny)</span>
-                 <span>15k (Płynny)</span>
+                 <span>30k (Pełny)</span>
               </div>
            </div>
         </div>
@@ -516,10 +512,11 @@ const ConfigPanel: React.FC<Props> = ({ config, onChange, onStart, fileName, cha
         <div className="mt-4">
           <button 
             onClick={onStart}
-            disabled={!config.apiKey}
-            className="w-full bg-brand-600 hover:bg-brand-700 dark:bg-brand-600 dark:hover:bg-brand-700 disabled:bg-gray-300 dark:disabled:bg-gray-700 disabled:cursor-not-allowed text-white font-bold py-4 rounded-lg shadow-lg hover:shadow-xl transition-all transform hover:-translate-y-0.5"
+            disabled={!config.apiKey || !!safetyWarning}
+            className="w-full bg-brand-600 hover:bg-brand-700 dark:bg-brand-600 dark:hover:bg-brand-700 disabled:bg-gray-300 dark:disabled:bg-gray-700 disabled:cursor-not-allowed text-white font-bold py-4 rounded-lg shadow-lg hover:shadow-xl transition-all transform hover:-translate-y-0.5 flex flex-col items-center justify-center gap-1"
           >
-            Inicjalizuj i Rozpocznij Tłumaczenie
+            <span>Inicjalizuj i Rozpocznij Tłumaczenie</span>
+            {safetyWarning && <span className="text-[10px] opacity-80 font-normal">Zablokowane: Chunk przekracza limit outputu modelu</span>}
           </button>
         </div>
         
