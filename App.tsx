@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { AppStage, TranslationConfig, BookGenre, ChunkData, RawFile } from './types';
-import { chunkText, getLookback, saveBlob, generateDocxBlob, createWorldPackage, parseWorldPackage } from './utils/textProcessing';
-import { translateChunk } from './services/geminiService';
+import { chunkText, getLookback, saveBlob, generateDocxBlob, createWorldPackage, parseWorldPackage, mergeGlossaryItems } from './utils/textProcessing';
+import { translateChunk, extractGlossaryPairs } from './services/geminiService';
 import { findSimilarSegments, createRagEntry } from './services/ragService';
 import { saveSession, loadSession, clearSession } from './utils/storage';
 import { calculateSessionCost } from './utils/models';
@@ -277,6 +277,26 @@ const App: React.FC = () => {
           }
         } catch (idxErr) {
           console.warn("Failed to index chunk for RAG", idxErr);
+        }
+
+        // 6. Continuous Glossary Extraction (Async)
+        try {
+          extractGlossaryPairs(
+            chunk.originalText,
+            result.text,
+            configRef.current.glossary,
+            configRef.current.apiKey,
+            configRef.current.model
+          ).then(newTerms => {
+            if (newTerms.length > 0) {
+              setConfig(prev => ({
+                ...prev,
+                glossary: mergeGlossaryItems(prev.glossary, newTerms)
+              }));
+            }
+          });
+        } catch (e) {
+          console.warn("Auto-extraction failed silently", e);
         }
 
         updateETR();

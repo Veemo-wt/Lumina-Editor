@@ -109,16 +109,34 @@ const GlossarySidebar: React.FC<Props> = ({
         const lines = text.split('\n');
         const newItems: GlossaryItem[] = [];
 
+        // Auto-detect delimiter from the first line (header or data)
+        const firstLine = lines[0] || '';
+        const delimiter = firstLine.includes(';') ? ';' : ',';
+
         const startIndex = lines[0].toLowerCase().includes('term') ? 1 : 0;
 
         for (let i = startIndex; i < lines.length; i++) {
           const line = lines[i].trim();
           if (!line) continue;
 
-          const parts = line.split(';');
+          // Regex to split by delimiter but ignore delimiters inside quotes
+          // Matches: "quoted value" OR value
+          const regex = new RegExp(`(?:^|${delimiter})(\"(?:[^\"]+|\"\")*\"|[^${delimiter}]*)`, 'g');
+          const matches: string[] = [];
+          let match;
+          while (match = regex.exec(line)) {
+            // match[1] is the value. Remove leading delimiter if captured there (regex quirks)
+            let val = match[1];
+            if (val && val.startsWith(delimiter)) val = val.substring(1);
+            matches.push(val);
+          }
+
+          // Fallback if regex fails or is empty (simple split)
+          const parts = matches.length > 0 ? matches : line.split(delimiter);
+
           if (parts.length < 2) continue;
 
-          const clean = (s: string) => s ? s.replace(/^"|"$/g, '').trim() : '';
+          const clean = (s: string) => s ? s.replace(/^"|"$/g, '').replace(/""/g, '"').trim() : '';
 
           newItems.push({
             id: `import-${Date.now()}-${i}`,
