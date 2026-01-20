@@ -1,6 +1,7 @@
+import React, { useState, useEffect, useRef } from 'react';
 import { AppStage, TranslationConfig, BookGenre, ChunkData, RawFile, CharacterTrait, GlossaryItem, RagEntry } from './types';
 import { chunkText, getLookback, saveBlob, generateDocxBlob, createWorldPackage, parseWorldPackage, mergeGlossaryItems, mergeCharacterTraits } from './utils/textProcessing';
-import { chunkText, getLookback, saveBlob, generateDocxBlob, createWorldPackage, parseWorldPackage, mergeGlossaryItems, mergeCharacterTraits } from './utils/textProcessing';
+
 import { translateChunk, extractGlossaryPairs } from './services/geminiService';
 import { findSimilarSegments, createRagEntry } from './services/ragService';
 import { saveSession, loadSession, clearSession } from './utils/storage';
