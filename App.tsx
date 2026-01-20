@@ -165,7 +165,7 @@ const App: React.FC = () => {
         config.characterBible,
         config.ragEntries
       );
-      saveBlob(`${fileName.replace(/\.[^/.]+$/, "")}_World.lumina`, blob);
+      saveBlob(`${fileName.replace(/\.[^/.]+$/, "")}_World.zip`, blob);
     } catch (e) {
       alert("Export failed: " + e);
     }
@@ -316,6 +316,7 @@ const App: React.FC = () => {
           glossaryItems={config.glossary}
           characterBible={config.characterBible}
           onAddGlossary={(item) => setConfig(prev => ({ ...prev, glossary: [...prev.glossary, item] }))}
+          onAddCharacter={(item) => setConfig(prev => ({ ...prev, characterBible: [...(prev.characterBible || []), item] }))}
           onRemoveGlossary={(id) => setConfig(prev => ({ ...prev, glossary: prev.glossary.filter(g => g.id !== id) }))}
           onRemoveCharacter={(id) => setConfig(prev => ({ ...prev, characterBible: (prev.characterBible || []).filter(c => c.id !== id) }))}
           onImportGlossary={(items) => setConfig(prev => ({ ...prev, glossary: [...prev.glossary, ...items] }))}

@@ -13,19 +13,25 @@ export const createWorldPackage = async (
   ragEntries: RagEntry[]
 ): Promise<Blob> => {
   const zip = new JSZip();
-  
+
   // 1. Metadata JSON (Lightweight)
   const metadata = {
-    version: "2.0",
+    version: "2.1",
     createdAt: new Date().toISOString(),
     project: "Lumina World Knowledge Pack",
-    glossary,
-    characterBible
+    counts: {
+      glossary: glossary.length,
+      characterBible: characterBible.length,
+      ragEntries: ragEntries.length
+    }
   };
   zip.file("metadata.json", JSON.stringify(metadata, null, 2));
 
-  // 2. RAG Database (Heavy)
-  // We separate it to allow partial imports if needed in future
+  // 2. Core Config Files (User Editable)
+  zip.file("glossary.json", JSON.stringify(glossary, null, 2));
+  zip.file("character_bible.json", JSON.stringify(characterBible, null, 2));
+
+  // 3. RAG Database (Heavy)
   zip.file("rag_vector_store.json", JSON.stringify(ragEntries));
 
   return await zip.generateAsync({ type: "blob" });
@@ -43,27 +49,39 @@ export const parseWorldPackage = async (file: File): Promise<{
   let characterBible: CharacterTrait[] = [];
   let ragEntries: RagEntry[] = [];
 
-  // 1. Parse Metadata
-  if (loadedZip.file("metadata.json")) {
+  // 1. Try Independent Files (New Format)
+  if (loadedZip.file("glossary.json")) {
+    const str = await loadedZip.file("glossary.json")?.async("string");
+    if (str) glossary = JSON.parse(str);
+  }
+
+  if (loadedZip.file("character_bible.json")) {
+    const str = await loadedZip.file("character_bible.json")?.async("string");
+    if (str) characterBible = JSON.parse(str);
+  }
+
+  // 2. Fallback to Old Metadata (Backward Compatibility)
+  if (glossary.length === 0 && characterBible.length === 0 && loadedZip.file("metadata.json")) {
     const metaStr = await loadedZip.file("metadata.json")?.async("string");
     if (metaStr) {
       const meta = JSON.parse(metaStr);
-      glossary = meta.glossary || [];
-      characterBible = meta.characterBible || [];
+      // Only use if they exist in metadata (old format)
+      if (meta.glossary) glossary = meta.glossary;
+      if (meta.characterBible) characterBible = meta.characterBible;
     }
-  } 
-  // Legacy support for plain JSON exports (if any)
-  else if (file.name.endsWith('.json')) {
-     const text = await file.text();
-     const json = JSON.parse(text);
-     return { 
-       glossary: json.glossary || [], 
-       characterBible: json.characterBible || [], 
-       ragEntries: [] 
-     };
+  }
+  // 3. Legacy support for plain JSON exports
+  else if (file.name.endsWith('.json') && !file.name.endsWith('metadata.json')) {
+    const text = await file.text();
+    const json = JSON.parse(text);
+    return {
+      glossary: json.glossary || [],
+      characterBible: json.characterBible || [],
+      ragEntries: []
+    };
   }
 
-  // 2. Parse RAG Store
+  // 4. Parse RAG Store
   if (loadedZip.file("rag_vector_store.json")) {
     const ragStr = await loadedZip.file("rag_vector_store.json")?.async("string");
     if (ragStr) {
@@ -80,15 +98,15 @@ export const parseWorldPackage = async (file: File): Promise<{
  */
 const chunkByLength = (text: string, targetSize: number): string[] => {
   const chunks: string[] = [];
-  
+
   // 1. Split by newlines first to preserve paragraphs
   const lines = text.split('\n');
-  
+
   let currentChunkText = '';
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    
+
     // Check if the line itself is massive (larger than chunk size)
     if (line.length > targetSize) {
       // If we have accumulation, push it first
@@ -99,20 +117,20 @@ const chunkByLength = (text: string, targetSize: number): string[] => {
 
       // Split massive line by sentences (heuristic)
       const sentences = line.match(/[^.!?]+[.!?]+["']?|[^.!?]+$/g) || [line];
-      
+
       let tempMassiveChunk = '';
       for (const sentence of sentences) {
         if ((tempMassiveChunk.length + sentence.length) > targetSize) {
-           if (tempMassiveChunk.length > 0) {
-             chunks.push(tempMassiveChunk);
-             tempMassiveChunk = '';
-           }
-           // If a single sentence is still huge (rare but possible), hard split
-           if (sentence.length > targetSize) {
-              const hardSplits = sentence.match(new RegExp(`.{1,${targetSize}}`, 'g')) || [sentence];
-              hardSplits.forEach(s => chunks.push(s));
-              continue;
-           }
+          if (tempMassiveChunk.length > 0) {
+            chunks.push(tempMassiveChunk);
+            tempMassiveChunk = '';
+          }
+          // If a single sentence is still huge (rare but possible), hard split
+          if (sentence.length > targetSize) {
+            const hardSplits = sentence.match(new RegExp(`.{1,${targetSize}}`, 'g')) || [sentence];
+            hardSplits.forEach(s => chunks.push(s));
+            continue;
+          }
         }
         tempMassiveChunk += sentence;
       }
@@ -150,11 +168,11 @@ const chunkByLength = (text: string, targetSize: number): string[] => {
  * 3. If a semantic chunk is still larger than targetSize, it recursively sub-chunks it by length.
  */
 export const chunkText = (
-  text: string, 
-  targetSize: number, 
+  text: string,
+  targetSize: number,
   chapterPattern?: string
 ): Omit<ChunkData, 'id'>[] => {
-  
+
   // If no pattern, just use length chunking
   if (!chapterPattern || !chapterPattern.trim()) {
     const rawChunks = chunkByLength(text, targetSize);
@@ -167,16 +185,16 @@ export const chunkText = (
 
   // SEMANTIC CHUNKING LOGIC
   const chunks: Omit<ChunkData, 'id'>[] = [];
-  
+
   try {
     // Construct Regex with Multiline flag (m) to match start of lines (^).
     // We strictly look for the pattern at the beginning of a line.
     // We use a capturing group () around the pattern to keep the header in the split result.
     const regex = new RegExp(`^(${chapterPattern}.*)`, 'gmi');
-    
+
     // Split: [Intro, Header1, Body1, Header2, Body2...]
     const parts = text.split(regex);
-    
+
     // If split failed (length 1), regex didn't match anything. Fallback.
     if (parts.length < 2) {
       const rawChunks = chunkByLength(text, targetSize);
@@ -213,7 +231,7 @@ export const chunkText = (
         buffer = part; // Add header to the start of the new buffer
       } else {
         // It's body text, append to buffer
-        buffer += part; 
+        buffer += part;
       }
     }
 
@@ -242,12 +260,12 @@ export const chunkText = (
  * If no -> sub-chunk by length.
  */
 const processSection = (
-  text: string, 
-  title: string, 
-  limit: number, 
+  text: string,
+  title: string,
+  limit: number,
   outputArray: Omit<ChunkData, 'id'>[]
 ) => {
-  if (text.length <= limit * 1.2) { 
+  if (text.length <= limit * 1.2) {
     // Allow 20% overflow for semantic integrity (better to keep chapter together if close)
     outputArray.push({
       originalText: text,
@@ -285,7 +303,7 @@ export const calculateReadingTime = (text: string): number => {
 
 export const downloadFile = (filename: string, content: string) => {
   const element = document.createElement('a');
-  const file = new Blob([content], {type: 'text/plain'});
+  const file = new Blob([content], { type: 'text/plain' });
   element.href = URL.createObjectURL(file);
   element.download = filename;
   document.body.appendChild(element);
@@ -314,7 +332,7 @@ export const mergeGlossaryItems = (existing: GlossaryItem[], newItems: GlossaryI
 const parsePdfBuffer = async (buffer: ArrayBuffer): Promise<string> => {
   const loadingTask = pdfjsLib.getDocument({ data: buffer });
   const pdf = await loadingTask.promise;
-  
+
   let fullText = '';
   for (let i = 1; i <= pdf.numPages; i++) {
     const page = await pdf.getPage(i);
@@ -358,7 +376,7 @@ export const extractTextFromZip = async (file: File): Promise<RawFile[]> => {
   for (const filename of filenames) {
     const fileEntry = loadedZip.files[filename];
     if (fileEntry.dir) continue;
-    if (filename.startsWith('__MACOSX')) continue; 
+    if (filename.startsWith('__MACOSX')) continue;
     if (filename.split('/').pop()?.startsWith('.')) continue; // Hidden files
 
     const ext = filename.split('.').pop()?.toLowerCase();
@@ -383,23 +401,23 @@ export const extractTextFromZip = async (file: File): Promise<RawFile[]> => {
       files.push({ name: filename, content: text });
     }
   }
-  
+
   return files;
 };
 
 export const generateDocxBlob = async (text: string): Promise<Blob> => {
-  const paragraphs = text.split('\n').map(line => 
-      new Paragraph({
-          children: [new TextRun(line)],
-          spacing: { after: 120 } 
-      })
+  const paragraphs = text.split('\n').map(line =>
+    new Paragraph({
+      children: [new TextRun(line)],
+      spacing: { after: 120 }
+    })
   );
 
   const doc = new Document({
-      sections: [{
-          properties: {},
-          children: paragraphs,
-      }],
+    sections: [{
+      properties: {},
+      children: paragraphs,
+    }],
   });
 
   return await Packer.toBlob(doc);
