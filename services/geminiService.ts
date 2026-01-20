@@ -26,7 +26,7 @@ const createClient = (apiKey: string) => {
   if (!apiKey) throw new Error("API Key is missing");
   return new OpenAI({
     apiKey: apiKey,
-    dangerouslyAllowBrowser: true 
+    dangerouslyAllowBrowser: true
   });
 };
 
@@ -37,10 +37,10 @@ const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
  */
 const filterRelevantContext = (text: string, glossary: GlossaryItem[], bible: CharacterTrait[]) => {
   const lowerText = text.toLowerCase();
-  
+
   const relevantGlossary = glossary.filter(item => {
     const term = item.term.toLowerCase();
-    return lowerText.includes(term); 
+    return lowerText.includes(term);
   });
 
   const relevantBible = bible.filter(char => {
@@ -126,7 +126,7 @@ export const translateChunk = async (request: TranslationRequest): Promise<Trans
     } catch (error: any) {
       if (error?.status === 429) {
         if (attempt === maxRetries) throw new Error("Rate limit exceeded.");
-        const waitTime = (attempt + 1) * 15000; 
+        const waitTime = (attempt + 1) * 15000;
         await delay(waitTime);
         attempt++;
         continue;
@@ -140,9 +140,9 @@ export const translateChunk = async (request: TranslationRequest): Promise<Trans
 export const detectGlossaryTerms = async (text: string, apiKey: string, model: string): Promise<GlossaryItem[]> => {
   const client = createClient(apiKey);
   const targetModel = model || 'gpt-4o';
-  
+
   const systemPrompt = `You are a Senior Literary Editor. Extract Proper Nouns (Characters, Locations, Artifacts) from the text. Return JSON: { "items": [{ "term", "translation", "category", "description" }] }`;
-  
+
   const userPrompt = `Analyze:\n"${text.slice(0, 15000)}..."`;
 
   try {
@@ -163,32 +163,46 @@ export const detectGlossaryTerms = async (text: string, apiKey: string, model: s
 };
 
 export const extractGlossaryPairs = async (
-  originalText: string, 
-  translatedText: string, 
+  originalText: string,
+  translatedText: string,
   existingGlossary: GlossaryItem[],
   apiKey: string,
   model: string
 ): Promise<GlossaryItem[]> => {
   const client = createClient(apiKey);
   const targetModel = model || 'gpt-4o';
-  
-  const systemPrompt = `Compare Source and Translation. Identify NEW Proper Nouns/Entities consistent with existing glossary. Return JSON { items: [] }.`;
-  
+
+  const systemPrompt = `Compare Source and Translation. Identify and extract Proper Nouns/Entities (Characters, Places, Artifacts). 
+  Return JSON: { "items": [{ "term": "Original Name", "translation": "Polish Name", "category": "character"|"location"|"other", "description": "Context" }] }.
+  IMPORTANT: Only include terms where the translation is a specific proper noun, not generic words.`;
+
   const userPrompt = `Source: ${originalText.slice(0, 5000)}\nTranslation: ${translatedText.slice(0, 5000)}\nExisting: ${existingGlossary.map(g => g.term).join(", ")}`;
 
   try {
+    console.log(`[Auto-Glossary] Analyzing chunk for new terms...`);
     const response = await client.chat.completions.create({
       model: targetModel,
       messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
       response_format: { type: "json_object" }
     });
-    const parsed = JSON.parse(response.choices[0]?.message?.content || "{}");
-    return (parsed.items || []).map((p: any, idx: number) => ({
+
+    const content = response.choices[0]?.message?.content || "{}";
+    const parsed = JSON.parse(content);
+
+    const items = (parsed.items || []).map((p: any, idx: number) => ({
       id: `auto-${Date.now()}-${idx}`,
       term: p.term,
       translation: p.translation,
       description: p.description || '',
       category: p.category || 'other'
     }));
-  } catch (e) { return []; }
+
+    console.log(`[Auto-Glossary] Found ${items.length} partial terms.`);
+    return items;
+
+  } catch (e: any) {
+    console.error("[Auto-Glossary] Extraction failed:", e.message || e);
+    // Don't swallow completely, return empty but let log show it
+    return [];
+  }
 };

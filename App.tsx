@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { AppStage, TranslationConfig, BookGenre, ChunkData, RawFile } from './types';
-import { chunkText, getLookback, saveBlob, generateDocxBlob, createWorldPackage, parseWorldPackage, mergeGlossaryItems } from './utils/textProcessing';
+import { AppStage, TranslationConfig, BookGenre, ChunkData, RawFile, CharacterTrait, GlossaryItem, RagEntry } from './types';
+import { chunkText, getLookback, saveBlob, generateDocxBlob, createWorldPackage, parseWorldPackage, mergeGlossaryItems, mergeCharacterTraits } from './utils/textProcessing';
+import { chunkText, getLookback, saveBlob, generateDocxBlob, createWorldPackage, parseWorldPackage, mergeGlossaryItems, mergeCharacterTraits } from './utils/textProcessing';
 import { translateChunk, extractGlossaryPairs } from './services/geminiService';
 import { findSimilarSegments, createRagEntry } from './services/ragService';
 import { saveSession, loadSession, clearSession } from './utils/storage';
@@ -261,19 +261,47 @@ const App: React.FC = () => {
           translatedText: result.text
         } : c));
 
-        // 5. RAG Indexing (Save Result)
+        // 5. RAG Indexing (Smart Granularity)
         try {
-          const newEntry = await createRagEntry(
-            chunk.originalText,
-            result.text,
-            configRef.current.apiKey,
-            chunk.sourceFileName || fileName
-          );
-          if (newEntry) {
-            setConfig(prev => ({
-              ...prev,
-              ragEntries: [...prev.ragEntries, newEntry]
-            }));
+          const sourceParagraphs = chunk.originalText.split(/\n\n+/).filter(p => p.trim());
+          const targetParagraphs = result.text.split(/\n\n+/).filter(p => p.trim());
+
+          // If alignment looks good (same # of paragraphs), store granularly
+          if (sourceParagraphs.length > 1 && sourceParagraphs.length === targetParagraphs.length) {
+            console.log(`[RAG] Smart Split: Saving ${sourceParagraphs.length} paragraph vectors.`);
+            const newEntries: RagEntry[] = [];
+
+            for (let i = 0; i < sourceParagraphs.length; i++) {
+              const entry = await createRagEntry(
+                sourceParagraphs[i],
+                targetParagraphs[i],
+                configRef.current.apiKey,
+                `${chunk.sourceFileName || fileName} (Para ${i + 1})`
+              );
+              if (entry) newEntries.push(entry);
+            }
+
+            if (newEntries.length > 0) {
+              setConfig(prev => ({
+                ...prev,
+                ragEntries: [...prev.ragEntries, ...newEntries]
+              }));
+            }
+          } else {
+            // Fallback to full chunk
+            console.log("[RAG] Standard Save: Paragraph mismatch or single block.");
+            const newEntry = await createRagEntry(
+              chunk.originalText,
+              result.text,
+              configRef.current.apiKey,
+              chunk.sourceFileName || fileName
+            );
+            if (newEntry) {
+              setConfig(prev => ({
+                ...prev,
+                ragEntries: [...prev.ragEntries, newEntry]
+              }));
+            }
           }
         } catch (idxErr) {
           console.warn("Failed to index chunk for RAG", idxErr);
@@ -288,12 +316,40 @@ const App: React.FC = () => {
             configRef.current.apiKey,
             configRef.current.model
           ).then(newTerms => {
-            if (newTerms.length > 0) {
+            const characters: CharacterTrait[] = [];
+            const glossaryItems: GlossaryItem[] = [];
+
+            newTerms.forEach((item: any) => {
+              if (item.category === 'character') {
+                characters.push({
+                  id: item.id,
+                  name: item.term,
+                  polishName: item.translation,
+                  gender: item.gender || 'male', // Default valid
+                  role: item.description,
+                  notes: "Auto-detected"
+                });
+              } else {
+                glossaryItems.push(item);
+              }
+            });
+
+            if (glossaryItems.length > 0) {
               setConfig(prev => ({
                 ...prev,
-                glossary: mergeGlossaryItems(prev.glossary, newTerms)
+                glossary: mergeGlossaryItems(prev.glossary, glossaryItems)
               }));
             }
+
+            if (characters.length > 0) {
+              setConfig(prev => ({
+                ...prev,
+                characterBible: mergeCharacterTraits(prev.characterBible || [], characters)
+              }));
+            }
+
+            console.log(`[Auto-Glossary] Merged: ${glossaryItems.length} terms, ${characters.length} characters.`);
+
           });
         } catch (e) {
           console.warn("Auto-extraction failed silently", e);

@@ -326,6 +326,12 @@ export const mergeGlossaryItems = (existing: GlossaryItem[], newItems: GlossaryI
   return [...existing, ...uniqueNewItems];
 };
 
+export const mergeCharacterTraits = (existing: CharacterTrait[], newItems: CharacterTrait[]): CharacterTrait[] => {
+  const existingNames = new Set(existing.map(i => i.name.toLowerCase()));
+  const uniqueNewItems = newItems.filter(i => !existingNames.has(i.name.toLowerCase()));
+  return [...existing, ...uniqueNewItems];
+};
+
 /**
  * Helper to process ArrayBuffer for PDF
  */
