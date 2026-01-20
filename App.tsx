@@ -11,17 +11,18 @@ import GlossarySidebar from './components/GlossarySidebar';
 import Header from './components/Header';
 import TranslationView from './components/TranslationView';
 import { Loader2 } from 'lucide-react';
+import ConfirmModal from './components/ConfirmModal';
 
 const DEFAULT_CONFIG: TranslationConfig = {
   apiKey: '',
-  model: 'gpt-4o', 
+  model: 'gpt-4o',
   genre: BookGenre.FICTION_LITERARY,
   tone: 'Wierny stylowi oryginału',
   glossary: [],
   characterBible: [],
   ragEntries: [],
-  chunkSize: 40000, 
-  lookbackSize: 10000, 
+  chunkSize: 40000,
+  lookbackSize: 10000,
   chapterPattern: '(Chapter|Rozdział|Part)\\s+\\d+'
 };
 
@@ -36,7 +37,7 @@ const App: React.FC = () => {
   const [processingError, setProcessingError] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
   const [isRestoring, setIsRestoring] = useState(true);
-  
+
   // Real-time Usage State
   const [sessionUsage, setSessionUsage] = useState({
     promptTokens: 0,
@@ -47,6 +48,7 @@ const App: React.FC = () => {
   const [sessionStartTime, setSessionStartTime] = useState<number | null>(null);
   const [sessionStartChunkIdx, setSessionStartChunkIdx] = useState<number>(0);
   const [estimatedTimeRemaining, setEstimatedTimeRemaining] = useState<string>('--:--');
+  const [isResetModalOpen, setIsResetModalOpen] = useState(false);
 
   // Fixed typo: constSF -> const
   const configRef = useRef(config);
@@ -89,18 +91,21 @@ const App: React.FC = () => {
     return () => clearTimeout(timer);
   }, [stage, rawFiles, fileName, config, chunks, currentChunkIdx, isRestoring]);
 
-  const handleResetProject = async () => {
-    if (window.confirm("Czy na pewno chcesz zakończyć ten projekt? Postęp zostanie utracony.")) {
-      await clearSession();
-      setStage('upload');
-      setRawFiles([]);
-      setFileName('');
-      setChunks([]);
-      setCurrentChunkIdx(0);
-      setConfig(DEFAULT_CONFIG);
-      setIsProcessing(false);
-      setSessionUsage({ promptTokens: 0, completionTokens: 0, totalCost: 0 });
-    }
+  const handleResetRequest = () => {
+    setIsResetModalOpen(true);
+  };
+
+  const handleConfirmReset = async () => {
+    await clearSession();
+    setStage('upload');
+    setRawFiles([]);
+    setFileName('');
+    setChunks([]);
+    setCurrentChunkIdx(0);
+    setConfig(DEFAULT_CONFIG);
+    setIsProcessing(false);
+    setSessionUsage({ promptTokens: 0, completionTokens: 0, totalCost: 0 });
+    setIsResetModalOpen(false);
   };
 
   const handleFileLoaded = async (files: RawFile[], name: string) => {
@@ -111,11 +116,11 @@ const App: React.FC = () => {
 
   const startPipeline = async () => {
     if (chunks.length > 0 && currentChunkIdx > 0) {
-        setStage('processing');
-        setIsProcessing(true);
-        setSessionStartTime(Date.now());
-        setSessionStartChunkIdx(currentChunkIdx);
-        return;
+      setStage('processing');
+      setIsProcessing(true);
+      setSessionStartTime(Date.now());
+      setSessionStartChunkIdx(currentChunkIdx);
+      return;
     }
 
     let globalChunkId = 0;
@@ -156,8 +161,8 @@ const App: React.FC = () => {
   const handleExportWorld = async () => {
     try {
       const blob = await createWorldPackage(
-        config.glossary, 
-        config.characterBible, 
+        config.glossary,
+        config.characterBible,
         config.ragEntries
       );
       saveBlob(`${fileName.replace(/\.[^/.]+$/, "")}_World.lumina`, blob);
@@ -206,23 +211,23 @@ const App: React.FC = () => {
         // 1. Prepare Context (Lookback)
         let lookbackText = "";
         if (currentChunkIdx > 0) {
-           lookbackText = getLookback(chunks[currentChunkIdx - 1].originalText, configRef.current.lookbackSize);
+          lookbackText = getLookback(chunks[currentChunkIdx - 1].originalText, configRef.current.lookbackSize);
         }
 
         // 2. RAG Retrieval (Vector Search)
         let ragContext = "";
         try {
-           const similar = await findSimilarSegments(
-             chunk.originalText, 
-             configRef.current.ragEntries, 
-             configRef.current.apiKey
-           );
-           
-           if (similar.length > 0) {
-             ragContext = similar.map(s => 
-               `SOURCE: "${s.sourceText.slice(0, 150)}..."\nTRANSLATION: "${s.translatedText.slice(0, 150)}..."`
-             ).join("\n---\n");
-           }
+          const similar = await findSimilarSegments(
+            chunk.originalText,
+            configRef.current.ragEntries,
+            configRef.current.apiKey
+          );
+
+          if (similar.length > 0) {
+            ragContext = similar.map(s =>
+              `SOURCE: "${s.sourceText.slice(0, 150)}..."\nTRANSLATION: "${s.translatedText.slice(0, 150)}..."`
+            ).join("\n---\n");
+          }
         } catch (ragErr) {
           console.warn("RAG Search failed, continuing without history", ragErr);
         }
@@ -250,10 +255,10 @@ const App: React.FC = () => {
           totalCost: prev.totalCost + cost
         }));
 
-        setChunks(prev => prev.map(c => c.id === chunk.id ? { 
-          ...c, 
-          status: 'completed', 
-          translatedText: result.text 
+        setChunks(prev => prev.map(c => c.id === chunk.id ? {
+          ...c,
+          status: 'completed',
+          translatedText: result.text
         } : c));
 
         // 5. RAG Indexing (Save Result)
@@ -307,7 +312,7 @@ const App: React.FC = () => {
   return (
     <div className="flex h-screen w-full bg-gray-100 dark:bg-gray-950">
       {stage !== 'upload' && (
-        <GlossarySidebar 
+        <GlossarySidebar
           glossaryItems={config.glossary}
           characterBible={config.characterBible}
           onAddGlossary={(item) => setConfig(prev => ({ ...prev, glossary: [...prev.glossary, item] }))}
@@ -321,28 +326,28 @@ const App: React.FC = () => {
       )}
 
       <div className={`flex-1 flex flex-col h-full overflow-hidden ${stage !== 'upload' ? 'mr-12' : ''}`}>
-        <Header 
+        <Header
           stage={stage}
           fileName={fileName}
           sessionUsage={sessionUsage}
           estimatedTimeRemaining={estimatedTimeRemaining}
           isExporting={isExporting}
-          onReset={handleResetProject}
+          onReset={handleResetRequest}
           onExport={handleExportDocx}
         />
 
         <main className="flex-1 overflow-y-auto prose-scroll">
           {stage === 'upload' && <FileUpload onFileLoaded={handleFileLoaded} />}
-          
+
           {stage === 'config' && (
             <div className="container mx-auto p-4 animate-in fade-in duration-500">
-               <ConfigPanel 
-                  config={config} 
-                  onChange={setConfig} 
-                  onStart={startPipeline} 
-                  fileName={fileName}
-                  charCount={rawFiles.reduce((acc, f) => acc + f.content.length, 0)}
-               />
+              <ConfigPanel
+                config={config}
+                onChange={setConfig}
+                onStart={startPipeline}
+                fileName={fileName}
+                charCount={rawFiles.reduce((acc, f) => acc + f.content.length, 0)}
+              />
             </div>
           )}
 
@@ -358,6 +363,16 @@ const App: React.FC = () => {
           )}
         </main>
       </div>
+
+      <ConfirmModal
+        isOpen={isResetModalOpen}
+        title="Zakończyć projekt?"
+        message="Czy na pewno chcesz zakończyć ten projekt? Cały niezapisany postęp zostanie utracony bezpowrotnie."
+        onConfirm={handleConfirmReset}
+        onCancel={() => setIsResetModalOpen(false)}
+        confirmLabel="Zakończ"
+        isDangrous={true}
+      />
     </div>
   );
 };
