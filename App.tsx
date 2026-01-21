@@ -394,7 +394,7 @@ const App: React.FC = () => {
         />
       )}
 
-      <div className={`flex-1 flex flex-col h-full overflow-hidden ${stage !== 'upload' ? 'mr-12' : ''}`}>
+      <div className="flex-1 flex flex-col h-full overflow-hidden">
         <Header
           stage={stage}
           fileName={fileName}
@@ -405,7 +405,7 @@ const App: React.FC = () => {
           onExport={handleExportDocx}
         />
 
-        <main className="flex-1 overflow-y-auto prose-scroll">
+        <main className={`flex-1 overflow-y-auto prose-scroll ${stage !== 'upload' ? 'mr-12' : ''}`}>
           {stage === 'upload' && <FileUpload onFileLoaded={handleFileLoaded} />}
 
           {stage === 'config' && (
