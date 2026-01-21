@@ -178,8 +178,9 @@ export const chunkText = (
     const rawChunks = chunkByLength(text, targetSize);
     return rawChunks.map(c => ({
       originalText: c,
-      translatedText: null,
-      status: 'pending'
+      correctedText: null,
+      mistakes: [],
+      status: 'pending' as const
     }));
   }
 
@@ -200,8 +201,9 @@ export const chunkText = (
       const rawChunks = chunkByLength(text, targetSize);
       return rawChunks.map(c => ({
         originalText: c,
-        translatedText: null,
-        status: 'pending',
+        correctedText: null,
+        mistakes: [],
+        status: 'pending' as const,
         sourceFileName: 'Auto-Split'
       }));
     }
@@ -245,8 +247,9 @@ export const chunkText = (
     const rawChunks = chunkByLength(text, targetSize);
     return rawChunks.map(c => ({
       originalText: c,
-      translatedText: null,
-      status: 'pending'
+      correctedText: null,
+      mistakes: [],
+      status: 'pending' as const
     }));
   }
 
@@ -269,7 +272,8 @@ const processSection = (
     // Allow 20% overflow for semantic integrity (better to keep chapter together if close)
     outputArray.push({
       originalText: text,
-      translatedText: null,
+      correctedText: null,
+      mistakes: [],
       status: 'pending',
       sourceFileName: title
     });
@@ -279,7 +283,8 @@ const processSection = (
     subChunks.forEach((sc, idx) => {
       outputArray.push({
         originalText: sc,
-        translatedText: null,
+        correctedText: null,
+        mistakes: [],
         status: 'pending',
         sourceFileName: `${title} (Part ${idx + 1})`
       });
