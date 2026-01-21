@@ -1,3 +1,4 @@
+
 export enum BookGenre {
   FICTION_LITERARY = "Literatura Piękna",
   FICTION_FANTASY = "Fantastyka / Sci-Fi",
@@ -57,26 +58,49 @@ export interface ProcessingStats {
   startTime: number;
 }
 
+// Mistake found by AI
+export interface Mistake {
+  id: string;
+  chunkId: number;
+  originalText: string;      // The incorrect text
+  suggestedFix: string;      // The proposed correction
+  reason: string;            // Why it's a mistake (grammar, spelling, etc.)
+  category: 'grammar' | 'orthography' | 'punctuation' | 'style' | 'gender' | 'other';
+  position: {
+    start: number;           // Character position in chunk
+    end: number;
+  };
+  status: 'pending' | 'approved' | 'rejected';
+}
+
 export interface ChunkData {
   id: number;
   originalText: string;
-  translatedText: string | null;
+  correctedText: string | null;  // Text after applying approved fixes
+  mistakes: Mistake[];           // List of mistakes found in this chunk
   status: "pending" | "processing" | "completed" | "error";
   errorMsg?: string;
   sourceFileName?: string; // To track which chapter/file this chunk belongs to
 }
 
+export interface ScanOptions {
+  checkGrammar: boolean;
+  checkOrthography: boolean;
+  checkGender: boolean;
+  checkStyle: boolean;
+  checkPunctuation: boolean;
+}
+
 export interface TranslationConfig {
   apiKey: string;
-  model: string; // User-defined model (e.g. gpt-4o, gpt-4.1 if available)
-  genre: BookGenre;
-  tone: string; // e.g., "Formal", "Witty", "Archaic"
+  model: string;
+  scanOptions: ScanOptions; // Replaces genre/tone
   glossary: GlossaryItem[];
   characterBible: CharacterTrait[];
-  ragEntries: RagEntry[]; // In-memory RAG database
-  chunkSize: number; // Target characters per chunk
-  lookbackSize: number; // Characters to include from previous chunk
-  chapterPattern?: string; // Regex pattern for detection e.g. "Chapter \d+"
+  ragEntries: RagEntry[];
+  chunkSize: number;
+  lookbackSize: number;
+  chapterPattern?: string;
 }
 
 export interface RawFile {
@@ -85,4 +109,3 @@ export interface RawFile {
 }
 
 export type AppStage = "upload" | "config" | "processing" | "review";
-

@@ -30,7 +30,7 @@ const Header: React.FC<HeaderProps> = ({
       <div className="flex items-center gap-3">
         <div className="w-8 h-8 bg-brand-600 rounded-lg flex items-center justify-center text-white font-serif font-bold">L</div>
         <div>
-          <h1 className="font-serif font-bold text-gray-800 dark:text-gray-100">Lumina Translate</h1>
+          <h1 className="font-serif font-bold text-gray-800 dark:text-gray-100">Lumina Scanner</h1>
           {fileName && <p className="text-[10px] text-gray-400 dark:text-gray-500 font-mono truncate max-w-[150px]">{fileName}</p>}
         </div>
       </div>

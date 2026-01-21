@@ -1,24 +1,29 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { AppStage, TranslationConfig, BookGenre, ChunkData, RawFile, CharacterTrait, GlossaryItem, RagEntry } from './types';
-import { chunkText, getLookback, saveBlob, generateDocxBlob, createWorldPackage, parseWorldPackage, mergeGlossaryItems, mergeCharacterTraits } from './utils/textProcessing';
+import { AppStage, TranslationConfig, ChunkData, RawFile, Mistake } from './types';
+import { chunkText, getLookback, saveBlob, generateDocxBlob, createWorldPackage, parseWorldPackage } from './utils/textProcessing';
 
-import { translateChunk, extractGlossaryPairs } from './services/geminiService';
-import { findSimilarSegments, createRagEntry } from './services/ragService';
+import { scanChunk } from './services/scanService';
+
 import { saveSession, loadSession, clearSession } from './utils/storage';
 import { calculateSessionCost } from './utils/models';
 import FileUpload from './components/FileUpload';
 import ConfigPanel from './components/ConfigPanel';
 import GlossarySidebar from './components/GlossarySidebar';
 import Header from './components/Header';
-import TranslationView from './components/TranslationView';
+import ScannerView from './components/ScannerView';
 import { Loader2 } from 'lucide-react';
 import ConfirmModal from './components/ConfirmModal';
 
 const DEFAULT_CONFIG: TranslationConfig = {
   apiKey: '',
   model: 'gpt-4o',
-  genre: BookGenre.FICTION_LITERARY,
-  tone: 'Wierny stylowi oryginału',
+  scanOptions: {
+    checkGrammar: true,
+    checkOrthography: true,
+    checkGender: true,
+    checkStyle: false,
+    checkPunctuation: true
+  },
   glossary: [],
   characterBible: [],
   ragEntries: [],
@@ -51,7 +56,6 @@ const App: React.FC = () => {
   const [estimatedTimeRemaining, setEstimatedTimeRemaining] = useState<string>('--:--');
   const [isResetModalOpen, setIsResetModalOpen] = useState(false);
 
-  // Fixed typo: constSF -> const
   const configRef = useRef(config);
 
   useEffect(() => {
@@ -115,12 +119,26 @@ const App: React.FC = () => {
     setStage('config');
   };
 
-  const startPipeline = async () => {
+  const startScan = async () => {
+    console.log('[Scanner] startScan called:', { chunksLength: chunks.length, currentChunkIdx, rawFilesLength: rawFiles.length });
+
     if (chunks.length > 0 && currentChunkIdx > 0) {
+      console.log('[Scanner] Resuming existing session');
+      if (currentChunkIdx >= chunks.length) {
+        console.log('[Scanner] Session was already complete, going to review');
+        setStage('review');
+        return;
+      }
       setStage('processing');
       setIsProcessing(true);
       setSessionStartTime(Date.now());
       setSessionStartChunkIdx(currentChunkIdx);
+      return;
+    }
+
+    if (rawFiles.length === 0) {
+      console.error('[Scanner] No files to process!');
+      setProcessingError('Brak plików do przetworzenia.');
       return;
     }
 
@@ -132,11 +150,20 @@ const App: React.FC = () => {
         allChunks.push({
           id: globalChunkId++,
           originalText: c.originalText,
-          translatedText: null,
+          correctedText: null,
+          mistakes: [],
           status: 'pending',
           sourceFileName: c.sourceFileName || file.name
         });
       });
+    }
+
+    console.log('[Scanner] Created chunks:', allChunks.length);
+
+    if (allChunks.length === 0) {
+      console.error('[Scanner] No chunks created from files!');
+      setProcessingError('Nie udało się utworzyć segmentów z plików.');
+      return;
     }
 
     setChunks(allChunks);
@@ -158,7 +185,6 @@ const App: React.FC = () => {
     setEstimatedTimeRemaining(`${minutes}m ${seconds}s`);
   };
 
-  // --- EXPORT WORLD HANDLER ---
   const handleExportWorld = async () => {
     try {
       const blob = await createWorldPackage(
@@ -172,13 +198,12 @@ const App: React.FC = () => {
     }
   };
 
-  // --- IMPORT WORLD HANDLER ---
   const handleImportWorld = async (file: File) => {
     try {
       const { glossary, characterBible, ragEntries } = await parseWorldPackage(file);
       setConfig(prev => ({
         ...prev,
-        glossary: [...prev.glossary, ...glossary], // Merge logic can be smarter
+        glossary: [...prev.glossary, ...glossary],
         characterBible: [...prev.characterBible, ...characterBible],
         ragEntries: [...prev.ragEntries, ...ragEntries]
       }));
@@ -188,10 +213,14 @@ const App: React.FC = () => {
     }
   };
 
+  // Processing Effect - scans chunks and finds mistakes
   useEffect(() => {
     let isMounted = true;
     const processNextChunk = async () => {
+      console.log('[Scanner] processNextChunk called:', { isProcessing, currentChunkIdx, chunksLength: chunks.length });
+
       if (!isProcessing || !isMounted || currentChunkIdx >= chunks.length) {
+        console.log('[Scanner] Early exit:', { isProcessing, isMounted, currentChunkIdx, chunksLength: chunks.length });
         if (currentChunkIdx >= chunks.length && chunks.length > 0) {
           setIsProcessing(false);
           setStage('review');
@@ -200,55 +229,44 @@ const App: React.FC = () => {
       }
 
       const chunk = chunks[currentChunkIdx];
+      if (!chunk) {
+        console.error('[Scanner] Chunk is undefined at index:', currentChunkIdx);
+        return;
+      }
+
       if (chunk.status === 'completed') {
         setCurrentChunkIdx(prev => prev + 1);
         return;
       }
 
       try {
+        console.log('[Scanner] Processing chunk:', chunk.id, 'with model:', configRef.current.model);
         setChunks(prev => prev.map(c => c.id === chunk.id ? { ...c, status: 'processing' } : c));
         setProcessingError(null);
 
-        // 1. Prepare Context (Lookback)
+        // Prepare Context (Lookback)
         let lookbackText = "";
         if (currentChunkIdx > 0) {
           lookbackText = getLookback(chunks[currentChunkIdx - 1].originalText, configRef.current.lookbackSize);
         }
 
-        // 2. RAG Retrieval (Vector Search)
-        let ragContext = "";
-        try {
-          const similar = await findSimilarSegments(
-            chunk.originalText,
-            configRef.current.ragEntries,
-            configRef.current.apiKey
-          );
-
-          if (similar.length > 0) {
-            ragContext = similar.map(s =>
-              `SOURCE: "${s.sourceText.slice(0, 150)}..."\nTRANSLATION: "${s.translatedText.slice(0, 150)}..."`
-            ).join("\n---\n");
-          }
-        } catch (ragErr) {
-          console.warn("RAG Search failed, continuing without history", ragErr);
-        }
-
-        // 3. Translation
-        const result = await translateChunk({
+        // Call Scan API - returns mistakes
+        console.log('[Scanner] Calling scanChunk API...');
+        const result = await scanChunk({
+          chunkId: chunk.id,
           chunkText: chunk.originalText,
           lookbackText,
-          genre: configRef.current.genre,
-          tone: configRef.current.tone,
+          scanOptions: configRef.current.scanOptions,
           glossary: configRef.current.glossary,
           characterBible: configRef.current.characterBible,
-          ragContext, // Pass retrieved context
           apiKey: configRef.current.apiKey,
           model: configRef.current.model
         });
+        console.log('[Scanner] scanChunk result received:', { mistakesCount: result.mistakes.length, usage: result.usage });
 
         if (!isMounted) return;
 
-        // 4. Update Stats
+        // Update Stats
         const cost = calculateSessionCost(configRef.current.model, result.usage.prompt_tokens, result.usage.completion_tokens);
         setSessionUsage(prev => ({
           promptTokens: prev.promptTokens + result.usage.prompt_tokens,
@@ -256,112 +274,21 @@ const App: React.FC = () => {
           totalCost: prev.totalCost + cost
         }));
 
+        // Update chunk with found mistakes
         setChunks(prev => prev.map(c => c.id === chunk.id ? {
           ...c,
           status: 'completed',
-          translatedText: result.text
+          mistakes: result.mistakes,
+          correctedText: null // Will be computed when mistakes are approved
         } : c));
-
-        // 5. RAG Indexing (Smart Granularity)
-        try {
-          const sourceParagraphs = chunk.originalText.split(/\n\n+/).filter(p => p.trim());
-          const targetParagraphs = result.text.split(/\n\n+/).filter(p => p.trim());
-
-          // If alignment looks good (same # of paragraphs), store granularly
-          if (sourceParagraphs.length > 1 && sourceParagraphs.length === targetParagraphs.length) {
-            console.log(`[RAG] Smart Split: Saving ${sourceParagraphs.length} paragraph vectors.`);
-            const newEntries: RagEntry[] = [];
-
-            for (let i = 0; i < sourceParagraphs.length; i++) {
-              const entry = await createRagEntry(
-                sourceParagraphs[i],
-                targetParagraphs[i],
-                configRef.current.apiKey,
-                `${chunk.sourceFileName || fileName} (Para ${i + 1})`
-              );
-              if (entry) newEntries.push(entry);
-            }
-
-            if (newEntries.length > 0) {
-              setConfig(prev => ({
-                ...prev,
-                ragEntries: [...prev.ragEntries, ...newEntries]
-              }));
-            }
-          } else {
-            // Fallback to full chunk
-            console.log("[RAG] Standard Save: Paragraph mismatch or single block.");
-            const newEntry = await createRagEntry(
-              chunk.originalText,
-              result.text,
-              configRef.current.apiKey,
-              chunk.sourceFileName || fileName
-            );
-            if (newEntry) {
-              setConfig(prev => ({
-                ...prev,
-                ragEntries: [...prev.ragEntries, newEntry]
-              }));
-            }
-          }
-        } catch (idxErr) {
-          console.warn("Failed to index chunk for RAG", idxErr);
-        }
-
-        // 6. Continuous Glossary Extraction (Async)
-        try {
-          extractGlossaryPairs(
-            chunk.originalText,
-            result.text,
-            configRef.current.glossary,
-            configRef.current.apiKey,
-            configRef.current.model
-          ).then(newTerms => {
-            const characters: CharacterTrait[] = [];
-            const glossaryItems: GlossaryItem[] = [];
-
-            newTerms.forEach((item: any) => {
-              if (item.category === 'character') {
-                characters.push({
-                  id: item.id,
-                  name: item.term,
-                  polishName: item.translation,
-                  gender: item.gender || 'male', // Default valid
-                  role: item.description,
-                  notes: "Auto-detected"
-                });
-              } else {
-                glossaryItems.push(item);
-              }
-            });
-
-            if (glossaryItems.length > 0) {
-              setConfig(prev => ({
-                ...prev,
-                glossary: mergeGlossaryItems(prev.glossary, glossaryItems)
-              }));
-            }
-
-            if (characters.length > 0) {
-              setConfig(prev => ({
-                ...prev,
-                characterBible: mergeCharacterTraits(prev.characterBible || [], characters)
-              }));
-            }
-
-            console.log(`[Auto-Glossary] Merged: ${glossaryItems.length} terms, ${characters.length} characters.`);
-
-          });
-        } catch (e) {
-          console.warn("Auto-extraction failed silently", e);
-        }
 
         updateETR();
         setCurrentChunkIdx(prev => prev + 1);
 
       } catch (err: any) {
+        console.error('[Scanner] Error during processing:', err);
         if (!isMounted) return;
-        setChunks(prev => prev.map(c => c.id === chunk.id ? { ...c, status: 'error' } : c));
+        setChunks(prev => prev.map(c => c.id === chunk.id ? { ...c, status: 'error', errorMsg: err.message } : c));
         setIsProcessing(false);
         setProcessingError(err.message || "Błąd API.");
       }
@@ -370,11 +297,75 @@ const App: React.FC = () => {
     return () => { isMounted = false; };
   }, [isProcessing, currentChunkIdx, chunks.length]);
 
+  // Approve a single mistake
+  const handleApproveMistake = (mistakeId: string) => {
+    setChunks(prev => prev.map(chunk => ({
+      ...chunk,
+      mistakes: chunk.mistakes.map(m =>
+        m.id === mistakeId ? { ...m, status: 'approved' as const } : m
+      )
+    })));
+  };
+
+  // Reject a single mistake
+  const handleRejectMistake = (mistakeId: string) => {
+    setChunks(prev => prev.map(chunk => ({
+      ...chunk,
+      mistakes: chunk.mistakes.map(m =>
+        m.id === mistakeId ? { ...m, status: 'rejected' as const } : m
+      )
+    })));
+  };
+
+  // Approve all pending mistakes
+  const handleApproveAll = () => {
+    setChunks(prev => prev.map(chunk => ({
+      ...chunk,
+      mistakes: chunk.mistakes.map(m =>
+        m.status === 'pending' ? { ...m, status: 'approved' as const } : m
+      )
+    })));
+  };
+
+  // Reject all pending mistakes
+  const handleRejectAll = () => {
+    setChunks(prev => prev.map(chunk => ({
+      ...chunk,
+      mistakes: chunk.mistakes.map(m =>
+        m.status === 'pending' ? { ...m, status: 'rejected' as const } : m
+      )
+    })));
+  };
+
+  // Apply approved fixes to generate corrected text
+  const applyCorrectionToChunk = (chunk: ChunkData): string => {
+    let text = chunk.originalText;
+
+    // Sort approved mistakes by position (descending) to apply from end to start
+    // This prevents position shifts from affecting subsequent replacements
+    const approvedMistakes = chunk.mistakes
+      .filter(m => m.status === 'approved')
+      .sort((a, b) => b.position.start - a.position.start);
+
+    for (const mistake of approvedMistakes) {
+      const before = text.slice(0, mistake.position.start);
+      const after = text.slice(mistake.position.end);
+      text = before + mistake.suggestedFix + after;
+    }
+
+    return text;
+  };
+
+  // Export corrected document
   const handleExportDocx = async () => {
     setIsExporting(true);
-    const fullText = chunks.map(c => c.translatedText || '').join('\n\n');
+
+    // Generate corrected text for each chunk
+    const correctedChunks = chunks.map(chunk => applyCorrectionToChunk(chunk));
+    const fullText = correctedChunks.join('\n\n');
+
     const blob = await generateDocxBlob(fullText);
-    saveBlob(`${fileName}_PL.docx`, blob);
+    saveBlob(`${fileName}_Corrected.docx`, blob);
     setIsExporting(false);
   };
 
@@ -422,7 +413,7 @@ const App: React.FC = () => {
               <ConfigPanel
                 config={config}
                 onChange={setConfig}
-                onStart={startPipeline}
+                onStart={startScan}
                 fileName={fileName}
                 charCount={rawFiles.reduce((acc, f) => acc + f.content.length, 0)}
               />
@@ -430,13 +421,17 @@ const App: React.FC = () => {
           )}
 
           {(stage === 'processing' || stage === 'review') && (
-            <TranslationView
+            <ScannerView
               chunks={chunks}
               currentChunkIdx={currentChunkIdx}
               isProcessing={isProcessing}
               processingError={processingError}
               stage={stage}
               onToggleProcessing={() => setIsProcessing(!isProcessing)}
+              onApproveMistake={handleApproveMistake}
+              onRejectMistake={handleRejectMistake}
+              onApproveAll={handleApproveAll}
+              onRejectAll={handleRejectAll}
             />
           )}
         </main>
@@ -456,3 +451,4 @@ const App: React.FC = () => {
 };
 
 export default App;
+
