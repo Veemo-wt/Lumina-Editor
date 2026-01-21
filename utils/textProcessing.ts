@@ -7,6 +7,182 @@ import JSZip from 'jszip';
 // Initialize PDF.js worker
 pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://esm.sh/pdfjs-dist@4.0.379/build/pdf.worker.min.mjs';
 
+/**
+ * Split text into sentences with better handling of abbreviations and edge cases
+ */
+export const splitIntoSentences = (text: string): string[] => {
+  // Common abbreviations that shouldn't end a sentence
+  const abbreviations = ['Mr', 'Mrs', 'Ms', 'Dr', 'Prof', 'Sr', 'Jr', 'vs', 'etc', 'i.e', 'e.g', 'np', 'tzn', 'tzw', 'ok', 'al', 'ul', 'pl', 'wg', 'mgr', 'inż', 'dr', 'hab', 'prof'];
+
+  // Replace abbreviations temporarily
+  let processed = text;
+  abbreviations.forEach((abbr, idx) => {
+    const regex = new RegExp(`\\b${abbr}\\.`, 'gi');
+    processed = processed.replace(regex, `{{ABBR_${idx}}}`);
+  });
+
+  // Split on sentence-ending punctuation followed by space and capital letter or end of string
+  // Handles: . ! ? and their combinations with quotes
+  const sentenceRegex = /([.!?]+["'"']?\s+)(?=[A-ZĄĆĘŁŃÓŚŹŻ])|([.!?]+["'"']?)$/g;
+
+  const sentences: string[] = [];
+  let lastIndex = 0;
+  let match;
+
+  while ((match = sentenceRegex.exec(processed)) !== null) {
+    const sentence = processed.slice(lastIndex, match.index + match[0].length).trim();
+    if (sentence) {
+      // Restore abbreviations
+      let restored = sentence;
+      abbreviations.forEach((abbr, idx) => {
+        restored = restored.replace(new RegExp(`\\{\\{ABBR_${idx}\\}\\}`, 'g'), `${abbr}.`);
+      });
+      sentences.push(restored);
+    }
+    lastIndex = match.index + match[0].length;
+  }
+
+  // Handle remaining text
+  if (lastIndex < processed.length) {
+    let remaining = processed.slice(lastIndex).trim();
+    if (remaining) {
+      abbreviations.forEach((abbr, idx) => {
+        remaining = remaining.replace(new RegExp(`\\{\\{ABBR_${idx}\\}\\}`, 'g'), `${abbr}.`);
+      });
+      sentences.push(remaining);
+    }
+  }
+
+  return sentences.filter(s => s.length > 0);
+};
+
+/**
+ * Align source and target sentences using length-ratio heuristics
+ * Returns pairs of aligned sentences
+ */
+export const alignSentences = (
+  sourceSentences: string[],
+  targetSentences: string[]
+): Array<{ source: string; target: string }> => {
+  const aligned: Array<{ source: string; target: string }> = [];
+
+  // If counts match exactly, assume 1:1 alignment
+  if (sourceSentences.length === targetSentences.length) {
+    for (let i = 0; i < sourceSentences.length; i++) {
+      aligned.push({
+        source: sourceSentences[i],
+        target: targetSentences[i]
+      });
+    }
+    return aligned;
+  }
+
+  // Polish text is typically 15-25% longer than English
+  // Use dynamic programming approach for better alignment
+  const POLISH_EXPANSION_RATIO = 1.20; // Expected Polish/English ratio
+  const TOLERANCE = 0.4; // 40% tolerance
+
+  let srcIdx = 0;
+  let tgtIdx = 0;
+
+  while (srcIdx < sourceSentences.length && tgtIdx < targetSentences.length) {
+    const srcSentence = sourceSentences[srcIdx];
+    const tgtSentence = targetSentences[tgtIdx];
+
+    // Calculate expected target length
+    const expectedTgtLen = srcSentence.length * POLISH_EXPANSION_RATIO;
+    const actualTgtLen = tgtSentence.length;
+
+    // Check if lengths are within tolerance for 1:1 alignment
+    const ratio = actualTgtLen / expectedTgtLen;
+
+    if (ratio >= (1 - TOLERANCE) && ratio <= (1 + TOLERANCE)) {
+      // Good 1:1 match
+      aligned.push({ source: srcSentence, target: tgtSentence });
+      srcIdx++;
+      tgtIdx++;
+    } else if (ratio < (1 - TOLERANCE) && tgtIdx + 1 < targetSentences.length) {
+      // Target too short - might need to merge target sentences (1:2)
+      const mergedTarget = tgtSentence + ' ' + targetSentences[tgtIdx + 1];
+      const mergedRatio = mergedTarget.length / expectedTgtLen;
+
+      if (Math.abs(mergedRatio - 1) < Math.abs(ratio - 1)) {
+        aligned.push({ source: srcSentence, target: mergedTarget });
+        srcIdx++;
+        tgtIdx += 2;
+      } else {
+        aligned.push({ source: srcSentence, target: tgtSentence });
+        srcIdx++;
+        tgtIdx++;
+      }
+    } else if (ratio > (1 + TOLERANCE) && srcIdx + 1 < sourceSentences.length) {
+      // Target too long - might need to merge source sentences (2:1)
+      const mergedSource = srcSentence + ' ' + sourceSentences[srcIdx + 1];
+      const mergedExpected = mergedSource.length * POLISH_EXPANSION_RATIO;
+      const mergedRatio = actualTgtLen / mergedExpected;
+
+      if (Math.abs(mergedRatio - 1) < Math.abs(ratio - 1)) {
+        aligned.push({ source: mergedSource, target: tgtSentence });
+        srcIdx += 2;
+        tgtIdx++;
+      } else {
+        aligned.push({ source: srcSentence, target: tgtSentence });
+        srcIdx++;
+        tgtIdx++;
+      }
+    } else {
+      // Fallback: just pair them
+      aligned.push({ source: srcSentence, target: tgtSentence });
+      srcIdx++;
+      tgtIdx++;
+    }
+  }
+
+  // Handle remaining sentences
+  while (srcIdx < sourceSentences.length && tgtIdx < targetSentences.length) {
+    aligned.push({
+      source: sourceSentences[srcIdx],
+      target: targetSentences[tgtIdx]
+    });
+    srcIdx++;
+    tgtIdx++;
+  }
+
+  // If there are leftover source sentences, pair with empty or merge
+  if (srcIdx < sourceSentences.length && aligned.length > 0) {
+    const remaining = sourceSentences.slice(srcIdx).join(' ');
+    aligned[aligned.length - 1].source += ' ' + remaining;
+  }
+
+  // If there are leftover target sentences, merge with last
+  if (tgtIdx < targetSentences.length && aligned.length > 0) {
+    const remaining = targetSentences.slice(tgtIdx).join(' ');
+    aligned[aligned.length - 1].target += ' ' + remaining;
+  }
+
+  return aligned;
+};
+
+/**
+ * Create aligned sentence pairs from source and target text
+ * Returns array of {source, target} pairs suitable for RAG
+ */
+export const createAlignedPairs = (
+  sourceText: string,
+  targetText: string,
+  minSentenceLength: number = 20
+): Array<{ source: string; target: string }> => {
+  const sourceSentences = splitIntoSentences(sourceText).filter(s => s.length >= minSentenceLength);
+  const targetSentences = splitIntoSentences(targetText).filter(s => s.length >= minSentenceLength);
+
+  if (sourceSentences.length === 0 || targetSentences.length === 0) {
+    // Fallback to full text
+    return [{ source: sourceText, target: targetText }];
+  }
+
+  return alignSentences(sourceSentences, targetSentences);
+};
+
 export const createWorldPackage = async (
   glossary: GlossaryItem[],
   characterBible: CharacterTrait[],
