@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { AppStage, TranslationConfig, BookGenre, ChunkData, RawFile, CharacterTrait, GlossaryItem, RagEntry } from './types';
-import { chunkText, getLookback, saveBlob, generateDocxBlob, createWorldPackage, parseWorldPackage, mergeGlossaryItems, mergeCharacterTraits } from './utils/textProcessing';
+import { chunkText, getLookback, saveBlob, generateDocxBlob, createWorldPackage, parseWorldPackage, mergeGlossaryItems, mergeCharacterTraits, createAlignedPairs } from './utils/textProcessing';
 
 import { translateChunk, extractGlossaryPairs } from './services/geminiService';
 import { findSimilarSegments, createRagEntry } from './services/ragService';
@@ -262,22 +262,25 @@ const App: React.FC = () => {
           translatedText: result.text
         } : c));
 
-        // 5. RAG Indexing (Smart Granularity)
+        // 5. RAG Indexing (Sentence-Level Alignment)
         try {
-          const sourceParagraphs = chunk.originalText.split(/\n\n+/).filter(p => p.trim());
-          const targetParagraphs = result.text.split(/\n\n+/).filter(p => p.trim());
+          const alignedPairs = createAlignedPairs(chunk.originalText, result.text, 30);
 
-          // If alignment looks good (same # of paragraphs), store granularly
-          if (sourceParagraphs.length > 1 && sourceParagraphs.length === targetParagraphs.length) {
-            console.log(`[RAG] Smart Split: Saving ${sourceParagraphs.length} paragraph vectors.`);
+          if (alignedPairs.length > 1) {
+            console.log(`[RAG] Sentence Alignment: Saving ${alignedPairs.length} aligned pairs.`);
             const newEntries: RagEntry[] = [];
 
-            for (let i = 0; i < sourceParagraphs.length; i++) {
+            // Process in batches to avoid overwhelming the API
+            for (let i = 0; i < alignedPairs.length; i++) {
+              const pair = alignedPairs[i];
+              // Skip very short pairs that might be noise
+              if (pair.source.length < 30 || pair.target.length < 30) continue;
+
               const entry = await createRagEntry(
-                sourceParagraphs[i],
-                targetParagraphs[i],
+                pair.source,
+                pair.target,
                 configRef.current.apiKey,
-                `${chunk.sourceFileName || fileName} (Para ${i + 1})`
+                `${chunk.sourceFileName || fileName} (Sent ${i + 1})`
               );
               if (entry) newEntries.push(entry);
             }
@@ -289,8 +292,8 @@ const App: React.FC = () => {
               }));
             }
           } else {
-            // Fallback to full chunk
-            console.log("[RAG] Standard Save: Paragraph mismatch or single block.");
+            // Fallback to full chunk if alignment failed
+            console.log("[RAG] Fallback: Using full chunk.");
             const newEntry = await createRagEntry(
               chunk.originalText,
               result.text,
@@ -403,7 +406,7 @@ const App: React.FC = () => {
         />
       )}
 
-      <div className={`flex-1 flex flex-col h-full overflow-hidden ${stage !== 'upload' ? 'mr-12' : ''}`}>
+      <div className="flex-1 flex flex-col h-full overflow-hidden">
         <Header
           stage={stage}
           fileName={fileName}
@@ -414,7 +417,7 @@ const App: React.FC = () => {
           onExport={handleExportDocx}
         />
 
-        <main className="flex-1 overflow-y-auto prose-scroll">
+        <main className={`flex-1 overflow-y-auto prose-scroll ${stage !== 'upload' ? 'mr-12' : ''}`}>
           {stage === 'upload' && <FileUpload onFileLoaded={handleFileLoaded} />}
 
           {stage === 'config' && (

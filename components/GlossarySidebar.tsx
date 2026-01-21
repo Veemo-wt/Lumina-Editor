@@ -181,7 +181,7 @@ const GlossarySidebar: React.FC<Props> = ({
   };
 
   return (
-    <div className={`fixed right-0 top-0 h-full bg-white dark:bg-gray-900 border-l border-gray-200 dark:border-gray-800 shadow-xl transition-all duration-300 flex flex-col z-30 ${isOpen ? 'w-96' : 'w-12'}`}>
+    <div className={`fixed right-0 top-[73px] h-[calc(100vh-73px)] bg-white dark:bg-gray-900 border-l border-gray-200 dark:border-gray-800 shadow-xl transition-all duration-300 flex flex-col z-20 ${isOpen ? 'w-96' : 'w-12'}`}>
 
       {/* Toggle Handle */}
       <button

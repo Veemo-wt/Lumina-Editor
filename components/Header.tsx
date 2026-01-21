@@ -26,7 +26,7 @@ const Header: React.FC<HeaderProps> = ({
   onExport
 }) => {
   return (
-    <header className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 p-4 flex justify-between items-center shadow-sm z-10 flex-shrink-0">
+    <header className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 p-4 flex justify-between items-center shadow-sm z-30 flex-shrink-0 w-full relative">
       <div className="flex items-center gap-3">
         <div className="w-8 h-8 bg-brand-600 rounded-lg flex items-center justify-center text-white font-serif font-bold">L</div>
         <div>
