@@ -105,6 +105,7 @@ export const scanChunk = async (request: ScanRequest): Promise<ScanResult> => {
       * Use Polish dialogue dashes (–) not hyphens (-) for dialogue
       * Report ONLY clear punctuation errors, NOT stylistic preferences`);
     if (scanOptions.checkLocalization) checks.push("- LOCALIZATION: Identify calques, literal translations of idioms/sayings from other languages. Suggest natural Polish equivalents or rephrasings that preserve meaning but sound native");
+    if (scanOptions.wrapThoughtsInQuotes) checks.push(`- THOUGHTS: Find character's internal thoughts/monologue that are NOT wrapped in Polish quotation marks „..." and suggest adding them. Internal thoughts should be distinguished from narration.`);
 
     // Note: FORMATTING (double spaces, spaces before punctuation) is handled locally without AI
 

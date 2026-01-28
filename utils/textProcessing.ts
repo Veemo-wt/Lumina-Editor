@@ -711,8 +711,43 @@ export interface LocalMistake {
   position: { start: number; end: number };
 }
 
-export const detectFormattingErrors = (text: string): LocalMistake[] => {
+/**
+ * Detect InDesign-style word breaks (e.g., "ewen - tualnie" or "ewen- tualnie")
+ * Returns positions of such breaks to exclude from formatting errors
+ */
+const detectInDesignWordBreaks = (text: string): Array<{ start: number; end: number }> => {
+  const breaks: Array<{ start: number; end: number }> = [];
+
+  // Pattern for InDesign word breaks: lowercase letter, optional space, hyphen, optional space, lowercase letter
+  // e.g., "ewen - tualnie", "ewen- tualnie", "ewen -tualnie"
+  const indesignBreakRegex = /[a-ząćęłńóśźż]\s*-\s*[a-ząćęłńóśźż]/gi;
+
+  let match;
+  while ((match = indesignBreakRegex.exec(text)) !== null) {
+    // Expand the range to include surrounding context
+    breaks.push({
+      start: match.index,
+      end: match.index + match[0].length
+    });
+  }
+
+  return breaks;
+};
+
+export const detectFormattingErrors = (text: string, indesignImport: boolean = false): LocalMistake[] => {
   const mistakes: LocalMistake[] = [];
+
+  // Detect InDesign word breaks if option is enabled
+  const indesignBreaks = indesignImport ? detectInDesignWordBreaks(text) : [];
+
+  // Helper to check if a position is within an InDesign break
+  const isInDesignBreak = (start: number, end: number): boolean => {
+    return indesignBreaks.some(br =>
+      (start >= br.start && start < br.end) ||
+      (end > br.start && end <= br.end) ||
+      (start <= br.start && end >= br.end)
+    );
+  };
 
   // Pattern definitions: [regex, reason, fix function]
   const patterns: Array<{
@@ -936,6 +971,11 @@ export const detectFormattingErrors = (text: string): LocalMistake[] => {
 
       // Skip if fix is same as original (shouldn't happen but safety check)
       if (originalText === suggestedFix) continue;
+
+      // Skip if this is within an InDesign word break
+      if (indesignImport && isInDesignBreak(match.index, match.index + originalText.length)) {
+        continue;
+      }
 
       mistakes.push({
         originalText,

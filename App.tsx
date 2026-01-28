@@ -24,7 +24,9 @@ const DEFAULT_CONFIG: TranslationConfig = {
     checkStyle: false,
     checkPunctuation: true,
     checkLocalization: false,
-    checkFormatting: true
+    checkFormatting: true,
+    wrapThoughtsInQuotes: false,
+    indesignImport: false
   },
   glossary: [],
   characterBible: [],
@@ -259,7 +261,7 @@ const App: React.FC = () => {
         // Step 1: Local formatting detection (no AI needed) - only if enabled
         let formattingMistakes: Mistake[] = [];
         if (configRef.current.scanOptions.checkFormatting) {
-          const localMistakes = detectFormattingErrors(chunk.originalText);
+          const localMistakes = detectFormattingErrors(chunk.originalText, configRef.current.scanOptions.indesignImport);
           formattingMistakes = localMistakes.map(m => ({
             id: `${chunk.id}-local-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
             chunkId: chunk.id,

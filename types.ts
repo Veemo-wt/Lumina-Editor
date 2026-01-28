@@ -13,9 +13,9 @@ export enum BookGenre {
   POPULAR_SCIENCE = "Popularnonaukowa",
   SELF_HELP = "Poradnik / Rozwój Osobisty",
   PSYHOLOGY = "Psychologia",
-  PHILOSOPHY = "Filozodia",
+  PHILOSOPHY = "Filozofia",
   BUISNESS = "Biznes / Ekonomia",
-  TECHNOLOGY = "Technolofia / IT",
+  TECHNOLOGY = "Technologia / IT",
   RELIGION = "Religia",
   TRAVEL = "Podróże",
   COOKING = "Kulinaria",
@@ -92,6 +92,8 @@ export interface ScanOptions {
   checkPunctuation: boolean;
   checkLocalization: boolean;
   checkFormatting: boolean;
+    wrapThoughtsInQuotes: boolean;
+  indesignImport: boolean;
 }
 
 export interface TranslationConfig {

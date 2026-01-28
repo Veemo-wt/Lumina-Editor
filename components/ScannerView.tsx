@@ -144,7 +144,7 @@ const ScannerView: React.FC<ScannerViewProps> = ({
     return chunks.flatMap(chunk => chunk.mistakes || []);
   }, [chunks]);
 
-  // Filter mistakes
+  // Filter mistakes for display list
   const filteredMistakes = useMemo(() => {
     return allMistakes.filter(m => {
       if (filterCategory !== 'all' && m.category !== filterCategory) return false;
@@ -152,6 +152,14 @@ const ScannerView: React.FC<ScannerViewProps> = ({
       return true;
     });
   }, [allMistakes, filterCategory, showOnlyPending]);
+
+  // All mistakes for navigation (category filtered but NOT status filtered)
+  const navigableMistakes = useMemo(() => {
+    return allMistakes.filter(m => {
+      if (filterCategory !== 'all' && m.category !== filterCategory) return false;
+      return true;
+    });
+  }, [allMistakes, filterCategory]);
 
   // Stats
   const stats = useMemo(() => {
@@ -196,20 +204,20 @@ const ScannerView: React.FC<ScannerViewProps> = ({
     });
   }, [allMistakes, fullTextData]);
 
-  // Navigate between mistakes
-  const currentMistakeIndex = filteredMistakes.findIndex(m => m.id === selectedMistakeId);
+  // Navigate between mistakes (uses navigableMistakes which includes all statuses)
+  const currentMistakeIndex = navigableMistakes.findIndex(m => m.id === selectedMistakeId);
 
   const goToNextMistake = useCallback(() => {
-    if (currentMistakeIndex < filteredMistakes.length - 1) {
-      setSelectedMistakeId(filteredMistakes[currentMistakeIndex + 1].id);
+    if (currentMistakeIndex < navigableMistakes.length - 1) {
+      setSelectedMistakeId(navigableMistakes[currentMistakeIndex + 1].id);
     }
-  }, [currentMistakeIndex, filteredMistakes]);
+  }, [currentMistakeIndex, navigableMistakes]);
 
   const goToPrevMistake = useCallback(() => {
     if (currentMistakeIndex > 0) {
-      setSelectedMistakeId(filteredMistakes[currentMistakeIndex - 1].id);
+      setSelectedMistakeId(navigableMistakes[currentMistakeIndex - 1].id);
     }
-  }, [currentMistakeIndex, filteredMistakes]);
+  }, [currentMistakeIndex, navigableMistakes]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -236,8 +244,11 @@ const ScannerView: React.FC<ScannerViewProps> = ({
           e.preventDefault();
           if (selectedMistakeId) {
             const mistake = allMistakes.find(m => m.id === selectedMistakeId);
-            if (mistake?.status === 'pending') {
-              onApproveMistake(selectedMistakeId);
+            if (mistake) {
+              // Approve regardless of current state (overrides rejected)
+              if (mistake.status !== 'approved') {
+                onApproveMistake(selectedMistakeId);
+              }
               goToNextMistake();
             }
           }
@@ -247,12 +258,12 @@ const ScannerView: React.FC<ScannerViewProps> = ({
           e.preventDefault();
           if (selectedMistakeId) {
             const mistake = allMistakes.find(m => m.id === selectedMistakeId);
-            if (mistake?.status === 'pending') {
-              onRejectMistake(selectedMistakeId);
+            if (mistake) {
+              // Reject regardless of current state (overrides approved)
+              if (mistake.status !== 'rejected') {
+                onRejectMistake(selectedMistakeId);
+              }
               goToNextMistake();
-            } else if (mistake?.status === 'approved' || mistake?.status === 'rejected') {
-              // Revert if already decided
-              onRevertMistake(selectedMistakeId);
             }
           }
           break;
@@ -273,12 +284,12 @@ const ScannerView: React.FC<ScannerViewProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [stage, selectedMistakeId, allMistakes, goToNextMistake, goToPrevMistake, onApproveMistake, onRejectMistake, onRevertMistake]);
 
-  // Auto-select first pending mistake when entering review
+  // Auto-select first mistake when entering review
   useEffect(() => {
-    if (stage === 'review' && !selectedMistakeId && filteredMistakes.length > 0) {
-      setSelectedMistakeId(filteredMistakes[0].id);
+    if (stage === 'review' && !selectedMistakeId && navigableMistakes.length > 0) {
+      setSelectedMistakeId(navigableMistakes[0].id);
     }
-  }, [stage, filteredMistakes, selectedMistakeId]);
+  }, [stage, navigableMistakes, selectedMistakeId]);
 
   // Scroll to highlighted text when mistake selected
   useEffect(() => {
@@ -291,6 +302,7 @@ const ScannerView: React.FC<ScannerViewProps> = ({
   }, [selectedMistake]);
 
   // Render text with ALL mistakes highlighted, selected one more prominent
+  // For approved mistakes, show the corrected text instead of original
   const renderFullTextWithAllHighlights = () => {
     const text = fullTextData.combinedText;
     if (!text) return null;
@@ -318,30 +330,41 @@ const ScannerView: React.FC<ScannerViewProps> = ({
         );
       }
 
-      // Determine highlighting style
+      // Determine highlighting style and what text to show
       const isSelected = mistake.id === selectedMistakeId;
       const isPending = mistake.status === 'pending';
+      const isApproved = mistake.status === 'approved';
+      const isRejected = mistake.status === 'rejected';
+
+      // Choose which text to display
+      const displayText = isApproved
+        ? mistake.suggestedFix  // Show corrected text for approved
+        : text.slice(mistake.globalStart, mistake.globalEnd);  // Original for pending/rejected
 
       let highlightClass = '';
       if (isSelected) {
         // Strong highlight for selected
-        highlightClass = 'bg-red-500 dark:bg-red-600 text-white px-1 py-0.5 rounded border-b-2 border-red-700';
+        if (isApproved) {
+          highlightClass = 'bg-green-500 dark:bg-green-600 text-white px-1 py-0.5 rounded border-b-2 border-green-700';
+        } else if (isRejected) {
+          highlightClass = 'bg-gray-500 dark:bg-gray-600 text-white px-1 py-0.5 rounded border-b-2 border-gray-700';
+        } else {
+          highlightClass = 'bg-red-500 dark:bg-red-600 text-white px-1 py-0.5 rounded border-b-2 border-red-700';
+        }
       } else if (isPending) {
         // Medium highlight for pending
         highlightClass = 'bg-red-200 dark:bg-red-800/50 text-red-900 dark:text-red-200 px-0.5 rounded';
-      } else if (mistake.status === 'approved') {
-        // Light green for approved
+      } else if (isApproved) {
+        // Light green for approved - show the fix
         highlightClass = 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300 px-0.5 rounded';
       } else {
-        // Very light for rejected
+        // Very light for rejected - keep original
         highlightClass = 'bg-gray-100 dark:bg-gray-800/50 text-gray-500 dark:text-gray-500 px-0.5 rounded line-through';
       }
 
-      const highlightedText = text.slice(mistake.globalStart, mistake.globalEnd);
-
       // Check if this is a whitespace-only mistake (double spaces, etc.)
-      const isWhitespaceOnly = /^\s+$/.test(highlightedText);
-      const hasSpecialWhitespace = /  +|\n/.test(highlightedText);
+      const isWhitespaceOnly = /^\s+$/.test(displayText);
+      const hasSpecialWhitespace = /  +|\n/.test(displayText);
 
       elements.push(
         <mark
@@ -350,10 +373,15 @@ const ScannerView: React.FC<ScannerViewProps> = ({
           style={{ whiteSpace: 'pre-wrap' }}
           onClick={() => setSelectedMistakeId(mistake.id)}
         >
-          {(isWhitespaceOnly || (isSelected && hasSpecialWhitespace)) ? renderWithVisibleWhitespace(highlightedText) : highlightedText}
-          {!isSelected && (
+          {(isWhitespaceOnly || (isSelected && hasSpecialWhitespace)) ? renderWithVisibleWhitespace(displayText) : displayText}
+          {!isSelected && !isApproved && (
             <span className="absolute -top-8 left-0 bg-gray-900 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10 pointer-events-none">
               → {mistake.suggestedFix}
+            </span>
+          )}
+          {!isSelected && isApproved && (
+            <span className="absolute -top-8 left-0 bg-gray-900 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10 pointer-events-none">
+              było: {text.slice(mistake.globalStart, mistake.globalEnd)}
             </span>
           )}
         </mark>

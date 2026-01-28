@@ -319,6 +319,26 @@ const ConfigPanel: React.FC<Props> = ({ config, onChange, onStart, fileName, cha
               />
               <span className="text-sm text-slate-700 dark:text-slate-200 group-hover:text-brand-600 transition-colors">Formatowanie (spacje, cudzysłowy, pauzy) — bez AI</span>
             </label>
+
+            <label className="flex items-center gap-3 cursor-pointer group">
+              <input
+                type="checkbox"
+                checked={config.scanOptions.wrapThoughtsInQuotes}
+                onChange={() => onChange({ ...config, scanOptions: { ...config.scanOptions, wrapThoughtsInQuotes: !config.scanOptions.wrapThoughtsInQuotes } })}
+                className="w-5 h-5 text-brand-600 rounded focus:ring-brand-500 border-slate-300 dark:border-slate-600 dark:bg-slate-700"
+              />
+              <span className="text-sm text-slate-700 dark:text-slate-200 group-hover:text-brand-600 transition-colors">Otaczaj myśli bohaterów cudzysłowami</span>
+            </label>
+
+            <label className="flex items-center gap-3 cursor-pointer group">
+              <input
+                type="checkbox"
+                checked={config.scanOptions.indesignImport}
+                onChange={() => onChange({ ...config, scanOptions: { ...config.scanOptions, indesignImport: !config.scanOptions.indesignImport } })}
+                className="w-5 h-5 text-brand-600 rounded focus:ring-brand-500 border-slate-300 dark:border-slate-600 dark:bg-slate-700"
+              />
+              <span className="text-sm text-slate-700 dark:text-slate-200 group-hover:text-brand-600 transition-colors">Import z InDesign (ignoruj łamania wyrazów)</span>
+            </label>
           </div>
         </div>
 
