@@ -514,22 +514,110 @@ export const mergeCharacterTraits = (existing: CharacterTrait[], newItems: Chara
 };
 
 /**
+ * Basic whitespace cleanup - preserves paragraph structure
+ * Used for DOCX and TXT where single newlines are intentional paragraph breaks
+ */
+export const cleanupWhitespaceBasic = (text: string): string => {
+  return text
+    // Normalize line endings
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    // Remove trailing/leading spaces on lines
+    .replace(/ +$/gm, '')
+    .replace(/^ +/gm, '')
+    // Multiple spaces to single
+    .replace(/ {2,}/g, ' ')
+    // Multiple newlines (3+) to double newline
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+};
+
+/**
+ * Aggressive whitespace cleanup for PDF
+ * Joins single newlines (soft wraps) into spaces
+ * Only double newlines are preserved as paragraph breaks
+ */
+const cleanupWhitespacePdf = (text: string): string => {
+  // Step 1: Normalize line endings
+  let result = text
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n');
+
+  // Step 2: Normalize multiple spaces to single space
+  result = result.replace(/ {2,}/g, ' ');
+
+  // Step 3: Trim each line
+  result = result.split('\n').map(line => line.trim()).join('\n');
+
+  // Step 4: Mark real paragraph breaks (2+ newlines) with placeholder
+  result = result.replace(/\n{2,}/g, '<<<PARA>>>');
+
+  // Step 5: Replace ALL remaining single newlines with spaces
+  // This joins soft-wrapped lines from PDF
+  result = result.replace(/\n/g, ' ');
+
+  // Step 6: Restore paragraph breaks
+  result = result.replace(/<<<PARA>>>/g, '\n\n');
+
+  // Step 7: Final cleanup
+  result = result
+    .replace(/ {2,}/g, ' ')      // Multiple spaces to single
+    .replace(/ *\n */g, '\n')    // Clean spaces around newlines
+    .replace(/\n{3,}/g, '\n\n')  // Max 2 consecutive newlines
+    .trim();
+
+  return result;
+};
+
+/**
  * Helper to process ArrayBuffer for PDF
+ * Extracts text and joins with appropriate spacing
  */
 const parsePdfBuffer = async (buffer: ArrayBuffer): Promise<string> => {
   const loadingTask = pdfjsLib.getDocument({ data: buffer });
   const pdf = await loadingTask.promise;
 
   let fullText = '';
+
   for (let i = 1; i <= pdf.numPages; i++) {
     const page = await pdf.getPage(i);
     const textContent = await page.getTextContent();
-    const pageText = textContent.items
-      .map((item: any) => item.str)
-      .join(' ');
+
+    let lastY: number | null = null;
+    let pageText = '';
+
+    for (const item of textContent.items as any[]) {
+      if (!item.str) continue;
+
+      const currentY = item.transform?.[5]; // Y position
+
+      if (lastY !== null && currentY !== undefined) {
+        const yDiff = Math.abs(lastY - currentY);
+
+        // Large Y difference (> 25) = likely new paragraph
+        if (yDiff > 25) {
+          pageText += '\n\n';
+        }
+        // Any Y difference = at least add space
+        else if (yDiff > 1) {
+          if (!pageText.endsWith(' ') && !pageText.endsWith('\n')) {
+            pageText += ' ';
+          }
+        }
+        // Same line - add space between segments if needed
+        else if (!pageText.endsWith(' ') && !pageText.endsWith('\n') && item.str.trim()) {
+          pageText += ' ';
+        }
+      }
+
+      pageText += item.str;
+      lastY = currentY;
+    }
+
     fullText += pageText + '\n\n';
   }
-  return fullText;
+
+  return cleanupWhitespacePdf(fullText);
 };
 
 export const extractTextFromPdf = async (file: File): Promise<string> => {
@@ -539,10 +627,11 @@ export const extractTextFromPdf = async (file: File): Promise<string> => {
 
 /**
  * Helper to process ArrayBuffer for Docx
+ * Preserves paragraph structure (single newlines are real paragraphs in DOCX)
  */
 const parseDocxBuffer = async (buffer: ArrayBuffer): Promise<string> => {
   const result = await mammoth.extractRawText({ arrayBuffer: buffer });
-  return result.value;
+  return cleanupWhitespaceBasic(result.value);
 };
 
 export const extractTextFromDocx = async (file: File): Promise<string> => {
@@ -571,7 +660,7 @@ export const extractTextFromZip = async (file: File): Promise<RawFile[]> => {
 
     try {
       if (ext === 'txt' || ext === 'md') {
-        text = await fileEntry.async('string');
+        text = cleanupWhitespaceBasic(await fileEntry.async('string'));
       } else if (ext === 'docx') {
         const buffer = await fileEntry.async('arraybuffer');
         text = await parseDocxBuffer(buffer);
@@ -609,3 +698,271 @@ export const generateDocxBlob = async (text: string): Promise<Blob> => {
 
   return await Packer.toBlob(doc);
 };
+
+/**
+ * Local formatting error detection - no AI needed
+ * Detects: double spaces, spaces before punctuation, Polish punctuation rules, etc.
+ */
+export interface LocalMistake {
+  originalText: string;
+  suggestedFix: string;
+  reason: string;
+  category: 'formatting';
+  position: { start: number; end: number };
+}
+
+export const detectFormattingErrors = (text: string): LocalMistake[] => {
+  const mistakes: LocalMistake[] = [];
+
+  // Pattern definitions: [regex, reason, fix function]
+  const patterns: Array<{
+    regex: RegExp;
+    reason: string;
+    fix: (match: string) => string;
+  }> = [
+    // ===== SPACING ERRORS =====
+
+    // Double (or more) spaces
+    {
+      regex: / {2,}/g,
+      reason: 'Podwójna spacja',
+      fix: () => ' '
+    },
+    // Space before comma
+    {
+      regex: / +,/g,
+      reason: 'Spacja przed przecinkiem',
+      fix: () => ','
+    },
+    // Space before period (but not after abbreviation like "np .")
+    {
+      regex: /(?<![a-z]{1,3}) +\./g,
+      reason: 'Spacja przed kropką',
+      fix: () => '.'
+    },
+    // Space before exclamation mark
+    {
+      regex: / +!/g,
+      reason: 'Spacja przed wykrzyknikiem',
+      fix: () => '!'
+    },
+    // Space before question mark
+    {
+      regex: / +\?/g,
+      reason: 'Spacja przed znakiem zapytania',
+      fix: () => '?'
+    },
+    // Space before colon (but allow time format like "10 : 30")
+    {
+      regex: /(?<!\d) +:/g,
+      reason: 'Spacja przed dwukropkiem',
+      fix: () => ':'
+    },
+    // Space before semicolon
+    {
+      regex: / +;/g,
+      reason: 'Spacja przed średnikiem',
+      fix: () => ';'
+    },
+    // Space before closing parenthesis
+    {
+      regex: / +\)/g,
+      reason: 'Spacja przed nawiasem zamykającym',
+      fix: () => ')'
+    },
+    // Space after opening parenthesis
+    {
+      regex: /\( +/g,
+      reason: 'Spacja po nawiasie otwierającym',
+      fix: () => '('
+    },
+    // Multiple consecutive newlines (more than 2)
+    {
+      regex: /\n{3,}/g,
+      reason: 'Zbyt wiele pustych linii',
+      fix: () => '\n\n'
+    },
+
+    // ===== MISSING SPACES =====
+
+    // No space after comma (followed by letter, not quote or newline)
+    {
+      regex: /,([a-zA-ZąćęłńóśźżĄĆĘŁŃÓŚŹŻ])/g,
+      reason: 'Brak spacji po przecinku',
+      fix: (m) => ', ' + m.slice(1)
+    },
+    // No space after period (followed by capital letter - new sentence)
+    {
+      regex: /\.([A-ZĄĆĘŁŃÓŚŹŻ])/g,
+      reason: 'Brak spacji po kropce',
+      fix: (m) => '. ' + m.slice(1)
+    },
+    // No space after exclamation mark (followed by capital)
+    {
+      regex: /!([A-ZĄĆĘŁŃÓŚŹŻ])/g,
+      reason: 'Brak spacji po wykrzykniku',
+      fix: (m) => '! ' + m.slice(1)
+    },
+    // No space after question mark (followed by capital)
+    {
+      regex: /\?([A-ZĄĆĘŁŃÓŚŹŻ])/g,
+      reason: 'Brak spacji po znaku zapytania',
+      fix: (m) => '? ' + m.slice(1)
+    },
+    // No space after colon (followed by letter, not in time format)
+    {
+      regex: /:([a-zA-ZąćęłńóśźżĄĆĘŁŃÓŚŹŻ])/g,
+      reason: 'Brak spacji po dwukropku',
+      fix: (m) => ': ' + m.slice(1)
+    },
+    // No space after semicolon
+    {
+      regex: /;([a-zA-ZąćęłńóśźżĄĆĘŁŃÓŚŹŻ])/g,
+      reason: 'Brak spacji po średniku',
+      fix: (m) => '; ' + m.slice(1)
+    },
+    // No space after closing parenthesis (followed by letter)
+    {
+      regex: /\)([a-zA-ZąćęłńóśźżĄĆĘŁŃÓŚŹŻ])/g,
+      reason: 'Brak spacji po nawiasie zamykającym',
+      fix: (m) => ') ' + m.slice(1)
+    },
+
+    // ===== POLISH QUOTATION MARKS =====
+
+    // English quotes at start -> Polish lower quote „
+    {
+      regex: /"([a-zA-ZąćęłńóśźżĄĆĘŁŃÓŚŹŻ])/g,
+      reason: 'Angielski cudzysłów - użyj polskiego „',
+      fix: (m) => '„' + m.slice(1)
+    },
+    // English quotes at end -> Polish upper quote "
+    {
+      regex: /([a-zA-ZąćęłńóśźżĄĆĘŁŃÓŚŹŻ.,!?])"/g,
+      reason: 'Angielski cudzysłów - użyj polskiego "',
+      fix: (m) => m.slice(0, -1) + '"'
+    },
+    // Space after opening Polish quote
+    {
+      regex: /„ +/g,
+      reason: 'Spacja po cudzysłowie otwierającym',
+      fix: () => '„'
+    },
+    // Space before closing Polish quote
+    {
+      regex: / +"/g,
+      reason: 'Spacja przed cudzysłowiem zamykającym',
+      fix: () => '"'
+    },
+
+    // ===== POLISH DIALOGUE DASHES =====
+
+    // Hyphen used as dialogue dash at start of line -> em dash
+    {
+      regex: /^- (?=[A-ZĄĆĘŁŃÓŚŹŻa-ząćęłńóśźż])/gm,
+      reason: 'Użyj półpauzy (–) zamiast łącznika (-) w dialogach',
+      fix: () => '– '
+    },
+    // Hyphen after quote (dialogue attribution) -> em dash
+    {
+      regex: /" - /g,
+      reason: 'Użyj półpauzy (–) zamiast łącznika (-)',
+      fix: () => '" – '
+    },
+    // Missing space after dialogue dash
+    {
+      regex: /^–([A-ZĄĆĘŁŃÓŚŹŻa-ząćęłńóśźż])/gm,
+      reason: 'Brak spacji po półpauzie w dialogu',
+      fix: (m) => '– ' + m.slice(1)
+    },
+
+    // ===== ELLIPSIS =====
+
+    // Three dots -> proper ellipsis character
+    {
+      regex: /\.{3}/g,
+      reason: 'Użyj znaku wielokropka (…) zamiast trzech kropek',
+      fix: () => '…'
+    },
+    // Space before ellipsis (usually incorrect in Polish)
+    {
+      regex: / +…/g,
+      reason: 'Spacja przed wielokropkiem',
+      fix: () => '…'
+    },
+    // No space after ellipsis when followed by capital (new sentence)
+    {
+      regex: /…([A-ZĄĆĘŁŃÓŚŹŻ])/g,
+      reason: 'Brak spacji po wielokropku',
+      fix: (m) => '… ' + m.slice(1)
+    },
+
+    // ===== OTHER PUNCTUATION =====
+
+    // Double punctuation (except ?! and !?)
+    {
+      regex: /([.,:;])(\1)/g,
+      reason: 'Podwójny znak interpunkcyjny',
+      fix: (m) => m[0]
+    },
+    // Comma after period (typo)
+    {
+      regex: /\.,/g,
+      reason: 'Przecinek po kropce',
+      fix: () => '.'
+    },
+    // Period after comma (typo)
+    {
+      regex: /,\./g,
+      reason: 'Kropka po przecinku',
+      fix: () => ','
+    },
+    // Space before % (in Polish usually no space)
+    {
+      regex: /(\d) +%/g,
+      reason: 'Spacja przed znakiem procentu',
+      fix: (m) => m.replace(/ +%/, '%')
+    },
+  ];
+
+  for (const { regex, reason, fix } of patterns) {
+    let match;
+    // Reset regex state
+    regex.lastIndex = 0;
+
+    while ((match = regex.exec(text)) !== null) {
+      const originalText = match[0];
+      const suggestedFix = fix(originalText);
+
+      // Skip if fix is same as original (shouldn't happen but safety check)
+      if (originalText === suggestedFix) continue;
+
+      mistakes.push({
+        originalText,
+        suggestedFix,
+        reason,
+        category: 'formatting',
+        position: {
+          start: match.index,
+          end: match.index + originalText.length
+        }
+      });
+    }
+  }
+
+  // Sort by position
+  mistakes.sort((a, b) => a.position.start - b.position.start);
+
+  // Remove overlapping mistakes (keep first)
+  const filtered: LocalMistake[] = [];
+  let lastEnd = -1;
+  for (const m of mistakes) {
+    if (m.position.start >= lastEnd) {
+      filtered.push(m);
+      lastEnd = m.position.end;
+    }
+  }
+
+  return filtered;
+};
+

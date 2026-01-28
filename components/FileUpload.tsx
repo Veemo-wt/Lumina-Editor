@@ -1,6 +1,6 @@
 import React, { useCallback, useState } from 'react';
 import { UploadCloud, FileText, Loader2, AlertCircle, FileArchive } from 'lucide-react';
-import { extractTextFromPdf, extractTextFromDocx, extractTextFromZip } from '../utils/textProcessing';
+import { extractTextFromPdf, extractTextFromDocx, extractTextFromZip, cleanupWhitespaceBasic } from '../utils/textProcessing';
 import { RawFile } from '../types';
 
 interface Props {
@@ -45,7 +45,7 @@ const FileUpload: React.FC<Props> = ({ onFileLoaded }) => {
               reader.onerror = () => reject(new Error("Failed to read text file."));
               reader.readAsText(file);
             });
-            files.push({ name: file.name, content: text });
+            files.push({ name: file.name, content: cleanupWhitespaceBasic(text) });
           }
 
           onFileLoaded(files, file.name);
@@ -65,8 +65,8 @@ const FileUpload: React.FC<Props> = ({ onFileLoaded }) => {
   return (
     <div className="max-w-2xl mx-auto mt-20 p-8">
       <div className="text-center mb-10">
-        <h1 className="text-4xl font-serif font-bold text-gray-900 dark:text-gray-100 mb-4 transition-colors">Lumina Translator</h1>
-        <p className="text-gray-500 dark:text-gray-400 text-lg transition-colors">Profesjonalny pipeline AI do tłumaczeń wydawniczych</p>
+        <h1 className="text-4xl font-serif font-bold text-gray-900 dark:text-gray-100 mb-4 transition-colors">Lumina Scanner</h1>
+        <p className="text-gray-500 dark:text-gray-400 text-lg transition-colors">Profesjonalny skaner błędów językowych</p>
       </div>
 
       <label className={`flex flex-col items-center justify-center w-full h-64 border-2 border-dashed rounded-xl transition-all group relative overflow-hidden 

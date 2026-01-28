@@ -95,8 +95,32 @@ export const scanChunk = async (request: ScanRequest): Promise<ScanResult> => {
     if (scanOptions.checkGrammar) checks.push("- GRAMMAR: Grammatical errors, conjugation, declension");
     if (scanOptions.checkOrthography) checks.push("- ORTHOGRAPHY: Spelling mistakes");
     if (scanOptions.checkGender) checks.push("- GENDER: Gender consistency with Character Bible");
-    if (scanOptions.checkStyle) checks.push("- STYLE: Readability and flow issues");
-    if (scanOptions.checkPunctuation) checks.push("- PUNCTUATION: Polish punctuation rules (commas, dialogue dashes)");
+    if (scanOptions.checkStyle) checks.push("- STYLE: Readability issues, awkward phrasing, repetitive words, unclear sentences. Suggest improvements for better flow and clarity");
+    if (scanOptions.checkPunctuation) checks.push(`- PUNCTUATION: Polish punctuation rules. BE VERY CAREFUL and CONSERVATIVE:
+      * Do NOT add commas before "i", "oraz", "lub", "albo", "ani", "czy" when they connect equal parts
+      * Do NOT change "i" to comma - Polish allows multiple "i" conjunctions in a sentence
+      * Comma IS required before "i" ONLY when it starts a new independent clause (with its own subject+verb)
+      * Comma IS required before: "który", "która", "które", "że", "żeby", "aby", "ponieważ", "gdyż", "choć", "chociaż", "jeśli", "jeżeli", "gdy", "kiedy"
+      * Comma separates clauses in compound sentences
+      * Use Polish dialogue dashes (–) not hyphens (-) for dialogue
+      * Report ONLY clear punctuation errors, NOT stylistic preferences`);
+    if (scanOptions.checkLocalization) checks.push("- LOCALIZATION: Identify calques, literal translations of idioms/sayings from other languages. Suggest natural Polish equivalents or rephrasings that preserve meaning but sound native");
+
+    // Note: FORMATTING (double spaces, spaces before punctuation) is handled locally without AI
+
+    // Build rules list - conditionally include stylistic preferences rule
+    const rules = [
+        "Each mistake must include the EXACT original text as it appears",
+        "Do NOT process or analyze the LOOKBACK section - it's only for context",
+        "Return JSON format only",
+        "ALWAYS assign a category to each mistake - never leave it empty",
+        "For PUNCTUATION: Be VERY conservative - only report CLEAR errors. When in doubt, do NOT report. Polish punctuation is flexible."
+    ];
+
+    // Only add anti-style rule if style check is disabled
+    if (!scanOptions.checkStyle) {
+        rules.unshift("Return ONLY actual mistakes, not stylistic preferences");
+    }
 
     const systemPrompt = `You are a professional Polish editor and proofreader.
 Your task is to FIND MISTAKES in the provided Polish text based on these enabled checks:
@@ -104,10 +128,7 @@ Your task is to FIND MISTAKES in the provided Polish text based on these enabled
 ${checks.join('\n')}
 
 **IMPORTANT RULES:**
-1. Return ONLY actual mistakes, not stylistic preferences
-2. Each mistake must include the EXACT original text as it appears
-3. Do NOT process or analyze the LOOKBACK section - it's only for context
-4. Return JSON format only
+${rules.map((r, i) => `${i + 1}. ${r}`).join('\n')}
 
 **CHARACTER CONTEXT:**
 ${bibleString.length > 0 ? bibleString : '(None)'}
@@ -122,7 +143,7 @@ ${glossaryString.length > 0 ? glossaryString : '(None)'}
       "original": "exact text with mistake",
       "suggested": "corrected text",
       "reason": "Brief explanation in Polish",
-      "category": "grammar|orthography|punctuation|style|gender|other"
+      "category": "grammar|orthography|punctuation|style|gender|localization|formatting|other"
     }
   ]
 }
@@ -174,7 +195,7 @@ ${chunkText}`;
                 const position = findMistakePosition(chunkText, raw.original, lastPosition);
                 lastPosition = position.end; // Search for next mistake after this one
 
-                const category = ['grammar', 'orthography', 'punctuation', 'style', 'gender', 'other'].includes(raw.category)
+                const category = ['grammar', 'orthography', 'punctuation', 'style', 'gender', 'localization', 'formatting', 'other'].includes(raw.category)
                     ? raw.category as Mistake['category']
                     : 'other';
 
@@ -186,7 +207,8 @@ ${chunkText}`;
                     reason: raw.reason || 'Błąd wykryty przez AI',
                     category,
                     position,
-                    status: 'pending'
+                    status: 'pending',
+                    source: 'ai'
                 });
             }
 

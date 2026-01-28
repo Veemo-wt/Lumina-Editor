@@ -290,7 +290,7 @@ const ConfigPanel: React.FC<Props> = ({ config, onChange, onStart, fileName, cha
               <span className="text-sm text-slate-700 dark:text-slate-200 group-hover:text-brand-600 transition-colors">Styl i Czytelność</span>
             </label>
 
-            <label className="flex items-center gap-3 cursor-pointer group col-span-1 md:col-span-2">
+            <label className="flex items-center gap-3 cursor-pointer group">
               <input
                 type="checkbox"
                 checked={config.scanOptions.checkPunctuation}
@@ -298,6 +298,26 @@ const ConfigPanel: React.FC<Props> = ({ config, onChange, onStart, fileName, cha
                 className="w-5 h-5 text-brand-600 rounded focus:ring-brand-500 border-slate-300 dark:border-slate-600 dark:bg-slate-700"
               />
               <span className="text-sm text-slate-700 dark:text-slate-200 group-hover:text-brand-600 transition-colors">Angielska vs Polska Interpunkcja (Dialogi)</span>
+            </label>
+
+            <label className="flex items-center gap-3 cursor-pointer group">
+              <input
+                type="checkbox"
+                checked={config.scanOptions.checkLocalization}
+                onChange={() => onChange({ ...config, scanOptions: { ...config.scanOptions, checkLocalization: !config.scanOptions.checkLocalization } })}
+                className="w-5 h-5 text-brand-600 rounded focus:ring-brand-500 border-slate-300 dark:border-slate-600 dark:bg-slate-700"
+              />
+              <span className="text-sm text-slate-700 dark:text-slate-200 group-hover:text-brand-600 transition-colors">Lokalizacja (Idiomy, Powiedzenia, Kalki)</span>
+            </label>
+
+            <label className="flex items-center gap-3 cursor-pointer group">
+              <input
+                type="checkbox"
+                checked={config.scanOptions.checkFormatting}
+                onChange={() => onChange({ ...config, scanOptions: { ...config.scanOptions, checkFormatting: !config.scanOptions.checkFormatting } })}
+                className="w-5 h-5 text-brand-600 rounded focus:ring-brand-500 border-slate-300 dark:border-slate-600 dark:bg-slate-700"
+              />
+              <span className="text-sm text-slate-700 dark:text-slate-200 group-hover:text-brand-600 transition-colors">Formatowanie (Spacje, Cudzysłowy, Pauzy) — bez AI</span>
             </label>
           </div>
         </div>

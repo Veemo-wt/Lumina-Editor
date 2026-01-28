@@ -58,19 +58,20 @@ export interface ProcessingStats {
   startTime: number;
 }
 
-// Mistake found by AI
+// Mistake found by AI or local detection
 export interface Mistake {
   id: string;
   chunkId: number;
   originalText: string;      // The incorrect text
   suggestedFix: string;      // The proposed correction
   reason: string;            // Why it's a mistake (grammar, spelling, etc.)
-  category: 'grammar' | 'orthography' | 'punctuation' | 'style' | 'gender' | 'other';
+  category: 'grammar' | 'orthography' | 'punctuation' | 'style' | 'gender' | 'localization' | 'formatting' | 'other';
   position: {
     start: number;           // Character position in chunk
     end: number;
   };
   status: 'pending' | 'approved' | 'rejected';
+  source: 'ai' | 'local';    // Whether detected by AI or local rules
 }
 
 export interface ChunkData {
@@ -89,6 +90,8 @@ export interface ScanOptions {
   checkGender: boolean;
   checkStyle: boolean;
   checkPunctuation: boolean;
+  checkLocalization: boolean;
+  checkFormatting: boolean;
 }
 
 export interface TranslationConfig {

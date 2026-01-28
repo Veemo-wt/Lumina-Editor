@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { AppStage, TranslationConfig, ChunkData, RawFile, Mistake } from './types';
-import { chunkText, getLookback, saveBlob, generateDocxBlob, createWorldPackage, parseWorldPackage } from './utils/textProcessing';
+import { chunkText, getLookback, saveBlob, generateDocxBlob, createWorldPackage, parseWorldPackage, detectFormattingErrors } from './utils/textProcessing';
 
 import { scanChunk } from './services/scanService';
 
@@ -22,7 +22,9 @@ const DEFAULT_CONFIG: TranslationConfig = {
     checkOrthography: true,
     checkGender: true,
     checkStyle: false,
-    checkPunctuation: true
+    checkPunctuation: true,
+    checkLocalization: false,
+    checkFormatting: true
   },
   glossary: [],
   characterBible: [],
@@ -78,6 +80,10 @@ const App: React.FC = () => {
           setCurrentChunkIdx(saved.currentChunkIdx || 0);
           setStage(saved.stage || 'upload');
           setIsProcessing(false);
+          // Restore session usage for calculator
+          if (saved.sessionUsage) {
+            setSessionUsage(saved.sessionUsage);
+          }
         }
       } catch (e) {
         console.error("Failed to restore state", e);
@@ -91,10 +97,10 @@ const App: React.FC = () => {
   useEffect(() => {
     if (isRestoring || stage === 'upload') return;
     const timer = setTimeout(() => {
-      saveSession({ stage, rawFiles, fileName, config, chunks, currentChunkIdx });
+      saveSession({ stage, rawFiles, fileName, config, chunks, currentChunkIdx, sessionUsage });
     }, 2000);
     return () => clearTimeout(timer);
-  }, [stage, rawFiles, fileName, config, chunks, currentChunkIdx, isRestoring]);
+  }, [stage, rawFiles, fileName, config, chunks, currentChunkIdx, sessionUsage, isRestoring]);
 
   const handleResetRequest = () => {
     setIsResetModalOpen(true);
@@ -250,7 +256,25 @@ const App: React.FC = () => {
           lookbackText = getLookback(chunks[currentChunkIdx - 1].originalText, configRef.current.lookbackSize);
         }
 
-        // Call Scan API - returns mistakes
+        // Step 1: Local formatting detection (no AI needed) - only if enabled
+        let formattingMistakes: Mistake[] = [];
+        if (configRef.current.scanOptions.checkFormatting) {
+          const localMistakes = detectFormattingErrors(chunk.originalText);
+          formattingMistakes = localMistakes.map(m => ({
+            id: `${chunk.id}-local-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+            chunkId: chunk.id,
+            originalText: m.originalText,
+            suggestedFix: m.suggestedFix,
+            reason: m.reason,
+            category: 'formatting' as const,
+            position: m.position,
+            status: 'pending' as const,
+            source: 'local' as const
+          }));
+          console.log('[Scanner] Local formatting errors found:', formattingMistakes.length);
+        }
+
+        // Step 2: Call AI Scan API - returns additional mistakes
         console.log('[Scanner] Calling scanChunk API...');
         const result = await scanChunk({
           chunkId: chunk.id,
@@ -266,6 +290,42 @@ const App: React.FC = () => {
 
         if (!isMounted) return;
 
+        // Step 3: Combine local and AI mistakes, removing overlaps
+        // Local formatting has priority - filter out AI mistakes that overlap with local ones
+        const aiMistakes = result.mistakes.filter(aiMistake => {
+          // Check if AI found something that overlaps with local formatting
+          const overlapsWithLocal = formattingMistakes.some(localMistake => {
+            // Check for any position overlap
+            const localStart = localMistake.position.start;
+            const localEnd = localMistake.position.end;
+            const aiStart = aiMistake.position.start;
+            const aiEnd = aiMistake.position.end;
+
+            // Overlaps if: NOT (aiEnd <= localStart OR aiStart >= localEnd)
+            const hasOverlap = !(aiEnd <= localStart || aiStart >= localEnd);
+
+            // Also check for same/similar text at close positions
+            const closePosition = Math.abs(localStart - aiStart) < 10;
+            const similarText = localMistake.originalText.includes(aiMistake.originalText) ||
+                               aiMistake.originalText.includes(localMistake.originalText);
+
+            return hasOverlap || (closePosition && similarText);
+          });
+          return !overlapsWithLocal;
+        });
+
+        // Combine and sort by position
+        const allMistakes = [...formattingMistakes, ...aiMistakes];
+        allMistakes.sort((a, b) => a.position.start - b.position.start);
+
+        // Final pass: remove any remaining overlaps (keep first one)
+        const finalMistakes = allMistakes.filter((mistake, idx) => {
+          if (idx === 0) return true;
+          const prevMistake = allMistakes[idx - 1];
+          // Skip if this mistake starts before previous one ends
+          return mistake.position.start >= prevMistake.position.end;
+        });
+
         // Update Stats
         const cost = calculateSessionCost(configRef.current.model, result.usage.prompt_tokens, result.usage.completion_tokens);
         setSessionUsage(prev => ({
@@ -274,11 +334,11 @@ const App: React.FC = () => {
           totalCost: prev.totalCost + cost
         }));
 
-        // Update chunk with found mistakes
+        // Update chunk with found mistakes (both local and AI)
         setChunks(prev => prev.map(c => c.id === chunk.id ? {
           ...c,
           status: 'completed',
-          mistakes: result.mistakes,
+          mistakes: finalMistakes,
           correctedText: null // Will be computed when mistakes are approved
         } : c));
 
@@ -317,22 +377,36 @@ const App: React.FC = () => {
     })));
   };
 
-  // Approve all pending mistakes
-  const handleApproveAll = () => {
+  // Approve all specified mistakes (or all pending if no IDs provided)
+  const handleApproveAll = (mistakeIds?: string[]) => {
     setChunks(prev => prev.map(chunk => ({
       ...chunk,
-      mistakes: chunk.mistakes.map(m =>
-        m.status === 'pending' ? { ...m, status: 'approved' as const } : m
-      )
+      mistakes: chunk.mistakes.map(m => {
+        if (m.status !== 'pending') return m;
+        if (mistakeIds && !mistakeIds.includes(m.id)) return m;
+        return { ...m, status: 'approved' as const };
+      })
     })));
   };
 
-  // Reject all pending mistakes
-  const handleRejectAll = () => {
+  // Reject all specified mistakes (or all pending if no IDs provided)
+  const handleRejectAll = (mistakeIds?: string[]) => {
+    setChunks(prev => prev.map(chunk => ({
+      ...chunk,
+      mistakes: chunk.mistakes.map(m => {
+        if (m.status !== 'pending') return m;
+        if (mistakeIds && !mistakeIds.includes(m.id)) return m;
+        return { ...m, status: 'rejected' as const };
+      })
+    })));
+  };
+
+  // Revert a mistake back to pending (undo approve/reject)
+  const handleRevertMistake = (mistakeId: string) => {
     setChunks(prev => prev.map(chunk => ({
       ...chunk,
       mistakes: chunk.mistakes.map(m =>
-        m.status === 'pending' ? { ...m, status: 'rejected' as const } : m
+        m.id === mistakeId ? { ...m, status: 'pending' as const } : m
       )
     })));
   };
@@ -430,6 +504,7 @@ const App: React.FC = () => {
               onToggleProcessing={() => setIsProcessing(!isProcessing)}
               onApproveMistake={handleApproveMistake}
               onRejectMistake={handleRejectMistake}
+              onRevertMistake={handleRevertMistake}
               onApproveAll={handleApproveAll}
               onRejectAll={handleRejectAll}
             />
