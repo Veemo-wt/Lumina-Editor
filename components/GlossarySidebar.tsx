@@ -196,7 +196,7 @@ const GlossarySidebar: React.FC<Props> = ({
           <div className="p-4 bg-gray-50 dark:bg-gray-800/50 border-b border-gray-200 dark:border-gray-800">
             <h2 className="font-serif text-lg font-bold text-gray-800 dark:text-gray-200 flex items-center gap-2">
               <Globe size={18} />
-              Baza Wiedzy
+              Baza wiedzy
             </h2>
             <div className="flex gap-2 mt-3">
               <button
@@ -218,13 +218,13 @@ const GlossarySidebar: React.FC<Props> = ({
 
             {/* GLOBAL ACTIONS (Import/Export World) */}
             <div className="bg-gray-50 dark:bg-gray-900/50 p-3 rounded-lg border border-gray-100 dark:border-gray-800 mb-4">
-              <p className="text-[10px] text-gray-400 dark:text-gray-500 uppercase font-bold mb-2">Zarządzanie Światem (Saga)</p>
+              <p className="text-[10px] text-gray-400 dark:text-gray-500 uppercase font-bold mb-2">Zarządzanie światem (saga)</p>
               <div className="flex gap-2">
                 <button onClick={onExportWorld} className="flex-1 flex items-center justify-center gap-1 bg-white dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 text-brand-700 dark:text-brand-400 py-1.5 rounded text-xs border border-gray-200 dark:border-gray-700 transition-colors shadow-sm font-medium" title="Pobierz pełną bazę (Glosariusz + Postacie + RAG) jako .lumina">
-                  <FileJson size={12} /> Eksportuj Świat
+                  <FileJson size={12} /> Eksportuj świat
                 </button>
                 <label className="flex-1 flex items-center justify-center gap-1 bg-brand-600 dark:bg-brand-600 hover:bg-brand-700 dark:hover:bg-brand-500 text-white py-1.5 rounded text-xs transition-colors cursor-pointer shadow-sm font-medium" title="Wczytaj bazę z pliku .lumina, .zip lub .json">
-                  <Upload size={12} /> Importuj Świat
+                  <Upload size={12} /> Importuj świat
                   <input type="file" accept=".json,.lumina,.zip" className="hidden" onChange={handleImportWorldFile} />
                 </label>
               </div>
@@ -247,7 +247,7 @@ const GlossarySidebar: React.FC<Props> = ({
                 {/* Add New Form */}
                 <div className="bg-brand-50 dark:bg-brand-900/10 p-4 rounded-lg border border-brand-100 dark:border-brand-900/30 shadow-sm transition-colors">
                   <h3 className="text-xs font-bold text-brand-800 dark:text-brand-400 mb-3 uppercase tracking-wide flex items-center gap-1">
-                    <Plus size={12} /> Dodaj Nowy Wpis
+                    <Plus size={12} /> Dodaj nowy wpis
                   </h3>
 
                   <div className="space-y-3">
@@ -255,13 +255,13 @@ const GlossarySidebar: React.FC<Props> = ({
                       <input
                         value={term}
                         onChange={e => setTerm(e.target.value)}
-                        placeholder="Termin Oryginalny"
+                        placeholder="Termin oryginalny"
                         className="text-sm p-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-white rounded focus:ring-1 focus:ring-brand-500 outline-none"
                       />
                       <input
                         value={translation}
                         onChange={e => setTranslation(e.target.value)}
-                        placeholder="Polskie Tłumaczenie"
+                        placeholder="Polskie tłumaczenie"
                         className="text-sm p-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-white rounded focus:ring-1 focus:ring-brand-500 outline-none"
                       />
                     </div>
@@ -291,7 +291,7 @@ const GlossarySidebar: React.FC<Props> = ({
                       disabled={!term || !translation}
                       className="w-full bg-brand-600 dark:bg-brand-600 text-white text-xs font-bold py-2.5 rounded hover:bg-brand-700 dark:hover:bg-brand-500 disabled:opacity-50 transition-colors shadow-sm"
                     >
-                      Dodaj do Słownika
+                      Dodaj do słownika
                     </button>
                   </div>
                 </div>
@@ -299,7 +299,7 @@ const GlossarySidebar: React.FC<Props> = ({
                 {/* List */}
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
-                    <h3 className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase">Aktywne Terminy</h3>
+                    <h3 className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase">Aktywne terminy</h3>
                   </div>
 
                   {glossaryItems.length === 0 && (
@@ -360,19 +360,19 @@ const GlossarySidebar: React.FC<Props> = ({
                 {/* Add Character Form - Mirrored from ConfigPanel */}
                 <div className="bg-brand-50 dark:bg-brand-900/10 p-4 rounded-lg border border-brand-100 dark:border-brand-900/30 shadow-sm transition-colors">
                   <h3 className="text-xs font-bold text-brand-800 dark:text-brand-400 mb-3 uppercase tracking-wide flex items-center gap-1">
-                    <Plus size={12} /> Dodaj Postać
+                    <Plus size={12} /> Dodaj postać
                   </h3>
 
                   <div className="space-y-2">
                     <div className="grid grid-cols-2 gap-2">
                       <input
-                        placeholder="Imię (Oryginał)"
+                        placeholder="Imię (oryginał)"
                         className="p-2 text-xs border rounded dark:bg-gray-800 dark:border-gray-700 dark:text-white"
                         value={newTrait.name || ''}
                         onChange={e => setNewTrait({ ...newTrait, name: e.target.value })}
                       />
                       <input
-                        placeholder="Imię (Polskie)"
+                        placeholder="Imię (polskie)"
                         className="p-2 text-xs border rounded dark:bg-gray-800 dark:border-gray-700 dark:text-white"
                         value={newTrait.polishName || ''}
                         onChange={e => setNewTrait({ ...newTrait, polishName: e.target.value })}
@@ -388,7 +388,7 @@ const GlossarySidebar: React.FC<Props> = ({
                       <option value="neutral">Nijaki</option>
                     </select>
                     <input
-                      placeholder="Styl (np. Gwara, Formalny)"
+                      placeholder="Styl (np. gwara, formalny)"
                       className="w-full p-2 text-xs border rounded dark:bg-gray-800 dark:border-gray-700 dark:text-white"
                       value={newTrait.speechStyle || ''}
                       onChange={e => setNewTrait({ ...newTrait, speechStyle: e.target.value })}
@@ -398,7 +398,7 @@ const GlossarySidebar: React.FC<Props> = ({
                       disabled={!newTrait.name || !newTrait.polishName}
                       className="w-full py-2 bg-brand-600 hover:bg-brand-700 dark:bg-brand-600 dark:hover:bg-brand-500 text-white text-xs font-bold rounded transition-colors disabled:opacity-50"
                     >
-                      Dodaj Postać
+                      Dodaj postać
                     </button>
                   </div>
                 </div>

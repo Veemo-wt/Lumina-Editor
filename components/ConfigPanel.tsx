@@ -136,7 +136,7 @@ const ConfigPanel: React.FC<Props> = ({ config, onChange, onStart, fileName, cha
         <div>
           <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
             <Settings size={20} className="text-brand-600 dark:text-brand-500" />
-            Konfiguracja Projektu
+            Konfiguracja projektu
           </h2>
           <p className="text-sm text-slate-500 dark:text-slate-400 mt-1 flex items-center gap-2">
             <FileText size={14} className="text-slate-400 dark:text-slate-500" />
@@ -195,7 +195,7 @@ const ConfigPanel: React.FC<Props> = ({ config, onChange, onStart, fileName, cha
             {showModelList && (
               <div className="absolute z-50 mt-2 w-full md:w-[120%] md:-left-[10%] bg-white dark:bg-slate-900 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-700 max-h-[400px] overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800 animate-in fade-in slide-in-from-top-2">
                 <div className="sticky top-0 bg-slate-50 dark:bg-slate-900/95 backdrop-blur-sm p-2 text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800 z-10">
-                  Wybierz Model do Tłumaczenia
+                  Wybierz model do skanowania
                 </div>
                 {MODELS_DB.map(m => (
                   <button
@@ -247,7 +247,7 @@ const ConfigPanel: React.FC<Props> = ({ config, onChange, onStart, fileName, cha
         <div>
           <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-4 flex items-center gap-2">
             <Sparkles size={16} className="text-brand-600 dark:text-brand-500" />
-            Opcje Skanowania (Co sprawdzać?)
+            Opcje skanowania (co sprawdzać?)
           </label>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-50 dark:bg-slate-800/50 p-4 rounded-lg border border-slate-100 dark:border-slate-700">
             <label className="flex items-center gap-3 cursor-pointer group">
@@ -257,7 +257,7 @@ const ConfigPanel: React.FC<Props> = ({ config, onChange, onStart, fileName, cha
                 onChange={() => onChange({ ...config, scanOptions: { ...config.scanOptions, checkGrammar: !config.scanOptions.checkGrammar } })}
                 className="w-5 h-5 text-brand-600 rounded focus:ring-brand-500 border-slate-300 dark:border-slate-600 dark:bg-slate-700"
               />
-              <span className="text-sm text-slate-700 dark:text-slate-200 group-hover:text-brand-600 transition-colors">Gramatyka i Składnia</span>
+              <span className="text-sm text-slate-700 dark:text-slate-200 group-hover:text-brand-600 transition-colors">Gramatyka i składnia</span>
             </label>
 
             <label className="flex items-center gap-3 cursor-pointer group">
@@ -267,7 +267,7 @@ const ConfigPanel: React.FC<Props> = ({ config, onChange, onStart, fileName, cha
                 onChange={() => onChange({ ...config, scanOptions: { ...config.scanOptions, checkOrthography: !config.scanOptions.checkOrthography } })}
                 className="w-5 h-5 text-brand-600 rounded focus:ring-brand-500 border-slate-300 dark:border-slate-600 dark:bg-slate-700"
               />
-              <span className="text-sm text-slate-700 dark:text-slate-200 group-hover:text-brand-600 transition-colors">Ortografia i Interpunkcja</span>
+              <span className="text-sm text-slate-700 dark:text-slate-200 group-hover:text-brand-600 transition-colors">Ortografia i interpunkcja</span>
             </label>
 
             <label className="flex items-center gap-3 cursor-pointer group">
@@ -277,7 +277,7 @@ const ConfigPanel: React.FC<Props> = ({ config, onChange, onStart, fileName, cha
                 onChange={() => onChange({ ...config, scanOptions: { ...config.scanOptions, checkGender: !config.scanOptions.checkGender } })}
                 className="w-5 h-5 text-brand-600 rounded focus:ring-brand-500 border-slate-300 dark:border-slate-600 dark:bg-slate-700"
               />
-              <span className="text-sm text-slate-700 dark:text-slate-200 group-hover:text-brand-600 transition-colors">Zgodność Płci (Biblia Postaci)</span>
+              <span className="text-sm text-slate-700 dark:text-slate-200 group-hover:text-brand-600 transition-colors">Zgodność płci (biblia postaci)</span>
             </label>
 
             <label className="flex items-center gap-3 cursor-pointer group">
@@ -287,7 +287,7 @@ const ConfigPanel: React.FC<Props> = ({ config, onChange, onStart, fileName, cha
                 onChange={() => onChange({ ...config, scanOptions: { ...config.scanOptions, checkStyle: !config.scanOptions.checkStyle } })}
                 className="w-5 h-5 text-brand-600 rounded focus:ring-brand-500 border-slate-300 dark:border-slate-600 dark:bg-slate-700"
               />
-              <span className="text-sm text-slate-700 dark:text-slate-200 group-hover:text-brand-600 transition-colors">Styl i Czytelność</span>
+              <span className="text-sm text-slate-700 dark:text-slate-200 group-hover:text-brand-600 transition-colors">Styl i czytelność</span>
             </label>
 
             <label className="flex items-center gap-3 cursor-pointer group">
@@ -297,7 +297,7 @@ const ConfigPanel: React.FC<Props> = ({ config, onChange, onStart, fileName, cha
                 onChange={() => onChange({ ...config, scanOptions: { ...config.scanOptions, checkPunctuation: !config.scanOptions.checkPunctuation } })}
                 className="w-5 h-5 text-brand-600 rounded focus:ring-brand-500 border-slate-300 dark:border-slate-600 dark:bg-slate-700"
               />
-              <span className="text-sm text-slate-700 dark:text-slate-200 group-hover:text-brand-600 transition-colors">Angielska vs Polska Interpunkcja (Dialogi)</span>
+              <span className="text-sm text-slate-700 dark:text-slate-200 group-hover:text-brand-600 transition-colors">Interpunkcja angielska vs polska (dialogi)</span>
             </label>
 
             <label className="flex items-center gap-3 cursor-pointer group">
@@ -307,7 +307,7 @@ const ConfigPanel: React.FC<Props> = ({ config, onChange, onStart, fileName, cha
                 onChange={() => onChange({ ...config, scanOptions: { ...config.scanOptions, checkLocalization: !config.scanOptions.checkLocalization } })}
                 className="w-5 h-5 text-brand-600 rounded focus:ring-brand-500 border-slate-300 dark:border-slate-600 dark:bg-slate-700"
               />
-              <span className="text-sm text-slate-700 dark:text-slate-200 group-hover:text-brand-600 transition-colors">Lokalizacja (Idiomy, Powiedzenia, Kalki)</span>
+              <span className="text-sm text-slate-700 dark:text-slate-200 group-hover:text-brand-600 transition-colors">Lokalizacja (idiomy, powiedzenia, kalki)</span>
             </label>
 
             <label className="flex items-center gap-3 cursor-pointer group">
@@ -317,7 +317,7 @@ const ConfigPanel: React.FC<Props> = ({ config, onChange, onStart, fileName, cha
                 onChange={() => onChange({ ...config, scanOptions: { ...config.scanOptions, checkFormatting: !config.scanOptions.checkFormatting } })}
                 className="w-5 h-5 text-brand-600 rounded focus:ring-brand-500 border-slate-300 dark:border-slate-600 dark:bg-slate-700"
               />
-              <span className="text-sm text-slate-700 dark:text-slate-200 group-hover:text-brand-600 transition-colors">Formatowanie (Spacje, Cudzysłowy, Pauzy) — bez AI</span>
+              <span className="text-sm text-slate-700 dark:text-slate-200 group-hover:text-brand-600 transition-colors">Formatowanie (spacje, cudzysłowy, pauzy) — bez AI</span>
             </label>
           </div>
         </div>
@@ -329,7 +329,7 @@ const ConfigPanel: React.FC<Props> = ({ config, onChange, onStart, fileName, cha
           <div>
             <div className="flex justify-between items-center mb-3 min-h-[40px]">
               <label className="flex items-center gap-2 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase leading-tight max-w-[65%]">
-                <Sliders size={14} className="flex-shrink-0" /> Limit Znaków (Chunk)
+                <Sliders size={14} className="flex-shrink-0" /> Limit znaków (chunk)
               </label>
               <span className={`text-xs font-mono font-bold px-2 py-1 rounded whitespace-nowrap border ${safetyWarning ? 'bg-red-50 text-red-600 border-red-200' : 'bg-brand-50 text-brand-700 border-transparent dark:bg-brand-900/30 dark:text-brand-300'}`}>
                 {config.chunkSize.toLocaleString()} znaków
@@ -361,7 +361,7 @@ const ConfigPanel: React.FC<Props> = ({ config, onChange, onStart, fileName, cha
           <div>
             <div className="flex justify-between items-center mb-3 min-h-[40px]">
               <label className="flex items-center gap-2 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase leading-tight max-w-[65%]">
-                <Sliders size={14} className="flex-shrink-0" /> Kontekst Wsteczny (Lookback)
+                <Sliders size={14} className="flex-shrink-0" /> Kontekst wsteczny (lookback)
               </label>
               <span className="text-xs font-mono font-bold text-brand-700 dark:text-brand-300 bg-brand-50 dark:bg-brand-900/30 px-2 py-1 rounded whitespace-nowrap">
                 {config.lookbackSize.toLocaleString()} znaków
@@ -377,8 +377,8 @@ const ConfigPanel: React.FC<Props> = ({ config, onChange, onStart, fileName, cha
               className="w-full h-2 bg-slate-200 dark:bg-slate-700 rounded-lg appearance-none cursor-pointer"
             />
             <div className="flex justify-between text-[10px] text-slate-400 dark:text-slate-500 mt-2">
-              <span>5k (Minimalny)</span>
-              <span>30k (Pełny)</span>
+              <span>5k (minimalny)</span>
+              <span>30k (pełny)</span>
             </div>
           </div>
         </div>
@@ -390,8 +390,8 @@ const ConfigPanel: React.FC<Props> = ({ config, onChange, onStart, fileName, cha
             disabled={!config.apiKey || !!safetyWarning}
             className="w-full bg-brand-600 hover:bg-brand-700 dark:bg-brand-600 dark:hover:bg-brand-700 disabled:bg-slate-300 dark:disabled:bg-slate-700 disabled:cursor-not-allowed text-white font-bold py-4 rounded-lg shadow-lg hover:shadow-xl transition-all transform hover:-translate-y-0.5 flex flex-col items-center justify-center gap-1"
           >
-            <span>Inicjalizuj i Rozpocznij Skanowanie</span>
-            {safetyWarning && <span className="text-[10px] opacity-80 font-normal">Zablokowane: Chunk przekracza limit outputu modelu</span>}
+            <span>Inicjalizuj i rozpocznij skanowanie</span>
+            {safetyWarning && <span className="text-[10px] opacity-80 font-normal">Zablokowane: chunk przekracza limit outputu modelu</span>}
           </button>
         </div>
 

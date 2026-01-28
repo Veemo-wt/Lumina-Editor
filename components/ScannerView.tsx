@@ -380,7 +380,7 @@ const ScannerView: React.FC<ScannerViewProps> = ({
         <div className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800">
           <div className="flex justify-between items-end mb-4">
             <div>
-              <h3 className="text-sm font-bold text-gray-400 uppercase tracking-widest">Skanowanie Tekstu</h3>
+              <h3 className="text-sm font-bold text-gray-400 uppercase tracking-widest">Skanowanie tekstu</h3>
               <div className="text-2xl font-serif font-bold text-gray-800 dark:text-gray-100">
                 {progressPercent}% <span className="text-xs font-sans text-gray-400 font-normal">({currentChunkIdx} / {chunks.length} segmentów)</span>
               </div>
@@ -406,7 +406,7 @@ const ScannerView: React.FC<ScannerViewProps> = ({
           <div className="mt-4 grid grid-cols-3 gap-4 text-center">
             <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
               <div className="text-2xl font-bold text-gray-800 dark:text-gray-100">{stats.total}</div>
-              <div className="text-xs text-gray-500">Znalezionych błędów</div>
+              <div className="text-xs text-gray-500">znalezionych błędów</div>
             </div>
             <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
               <div className="text-2xl font-bold text-gray-800 dark:text-gray-100">{chunks.filter(c => c.status === 'completed').length}</div>
