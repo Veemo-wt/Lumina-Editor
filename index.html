@@ -5,13 +5,22 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Lumina Scanner</title>
+  <script>
+    // Prevent flash of wrong theme
+    (function() {
+      const saved = localStorage.getItem('theme');
+      if (saved === 'dark' || (!saved && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+        document.documentElement.classList.add('dark');
+      }
+    })();
+  </script>
   <script src="https://cdn.tailwindcss.com"></script>
   <link
     href="https://fonts.googleapis.com/css2?family=Merriweather:ital,wght@0,300;0,400;0,700;1,300;1,400&family=Inter:wght@300;400;500;600;700&display=swap"
     rel="stylesheet">
   <script>
     tailwind.config = {
-      darkMode: 'media', // Auto detection based on system settings
+      darkMode: 'class',
       theme: {
         extend: {
           fontFamily: {
@@ -37,6 +46,10 @@
     }
   </script>
   <style>
+    /* Force dark mode colors on form elements */
+    .dark input, .dark textarea, .dark select {
+      color-scheme: dark;
+    }
     /* Custom scrollbar for the reading panels */
     .prose-scroll::-webkit-scrollbar {
       width: 8px;

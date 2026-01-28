@@ -1,5 +1,5 @@
-import React from 'react';
-import { Download, Loader2, Clock, Trash2, DollarSign, Cpu } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Download, Loader2, Clock, Trash2, DollarSign, Cpu, Sun, Moon } from 'lucide-react';
 import { AppStage } from '../types';
 
 interface HeaderProps {
@@ -25,6 +25,26 @@ const Header: React.FC<HeaderProps> = ({
   onReset,
   onExport
 }) => {
+  const [isDark, setIsDark] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('theme');
+      if (saved === 'dark') return true;
+      if (saved === 'light') return false;
+      return window.matchMedia('(prefers-color-scheme: dark)').matches;
+    }
+    return false;
+  });
+
+  useEffect(() => {
+    if (isDark) {
+      document.documentElement.classList.add('dark');
+      localStorage.setItem('theme', 'dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+      localStorage.setItem('theme', 'light');
+    }
+  }, [isDark]);
+
   return (
     <header className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 p-4 flex justify-between items-center shadow-sm z-30 flex-shrink-0 w-full relative">
       <div className="flex items-center gap-3">
@@ -56,6 +76,13 @@ const Header: React.FC<HeaderProps> = ({
         )}
 
         <div className="flex items-center gap-2">
+          <button
+            onClick={() => setIsDark(!isDark)}
+            className="p-2 text-gray-400 hover:text-brand-500 transition-colors rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800"
+            title={isDark ? 'Tryb jasny' : 'Tryb ciemny'}
+          >
+            {isDark ? <Sun size={18} /> : <Moon size={18} />}
+          </button>
           {stage !== 'upload' && (
             <button onClick={onReset} className="p-2 text-gray-400 hover:text-red-500 transition-colors" title="Zresetuj projekt">
               <Trash2 size={18} />
