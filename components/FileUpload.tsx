@@ -1,6 +1,6 @@
 import React, { useCallback, useState } from 'react';
 import { UploadCloud, FileText, Loader2, AlertCircle, FileArchive } from 'lucide-react';
-import { extractTextFromPdf, extractTextFromDocx, extractTextFromZip, cleanupWhitespaceBasic } from '../utils/textProcessing';
+import { extractTextFromPdf, extractTextFromDocx, extractTextFromZip, extractTextFromIdml, cleanupWhitespaceBasic } from '../utils/textProcessing';
 import { RawFile } from '../types';
 
 interface Props {
@@ -23,10 +23,15 @@ const FileUpload: React.FC<Props> = ({ onFileLoaded }) => {
         try {
           let files: RawFile[] = [];
           
-          if (file.type === 'application/zip' || file.name.endsWith('.zip')) {
+          // Check IDML FIRST - it's a ZIP but needs special handling
+          if (file.name.endsWith('.idml')) {
+            const text = await extractTextFromIdml(file);
+            if (!text.trim()) throw new Error("No text found in IDML file.");
+            files.push({ name: file.name, content: text });
+          } else if (file.type === 'application/zip' || file.name.endsWith('.zip')) {
             files = await extractTextFromZip(file);
             if (files.length === 0) throw new Error("No valid text files found in ZIP archive.");
-          } else if (file.type === 'application/pdf') {
+          } else if (file.type === 'application/pdf' || file.name.endsWith('.pdf')) {
             const text = await extractTextFromPdf(file);
             if (!text.trim()) throw new Error("No text found in PDF.");
             files.push({ name: file.name, content: text });
@@ -86,14 +91,14 @@ const FileUpload: React.FC<Props> = ({ onFileLoaded }) => {
                <UploadCloud className="w-10 h-10 text-brand-500" />
             </div>
             <p className="mb-2 text-sm text-gray-600 dark:text-gray-300 font-medium">Kliknij aby przesłać</p>
-            <p className="text-xs text-gray-400 dark:text-gray-500">Wspierane: .zip (Wielo-rozdziałowy), .docx, .pdf, .txt</p>
+            <p className="text-xs text-gray-400 dark:text-gray-500">Wspierane: .zip (wielo-rozdziałowy), .docx, .pdf, .txt, .idml (InDesign)</p>
           </div>
         )}
 
         <input 
           type="file" 
           className="hidden" 
-          accept=".zip,.txt,.pdf,.docx,application/zip,application/pdf,text/plain,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+          accept=".zip,.txt,.pdf,.docx,.idml,application/zip,application/pdf,text/plain,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
           onChange={handleFileChange}
           disabled={isParsing}
         />

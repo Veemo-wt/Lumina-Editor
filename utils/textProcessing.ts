@@ -572,40 +572,150 @@ const cleanupWhitespacePdf = (text: string): string => {
 /**
  * Helper to process ArrayBuffer for PDF
  * Extracts text and joins with appropriate spacing
+ * Optionally removes running heads (headers/footers)
  */
-const parsePdfBuffer = async (buffer: ArrayBuffer): Promise<string> => {
+const parsePdfBuffer = async (buffer: ArrayBuffer, removeRunningHeads: boolean = true): Promise<string> => {
   const loadingTask = pdfjsLib.getDocument({ data: buffer });
   const pdf = await loadingTask.promise;
 
-  let fullText = '';
+  // First pass: collect text positions to detect running heads
+  const pageTexts: Array<{
+    pageNum: number;
+    items: Array<{ str: string; y: number; x: number; height: number }>;
+    height: number;
+  }> = [];
 
   for (let i = 1; i <= pdf.numPages; i++) {
     const page = await pdf.getPage(i);
+    const viewport = page.getViewport({ scale: 1 });
     const textContent = await page.getTextContent();
+
+    const items: Array<{ str: string; y: number; x: number; height: number }> = [];
+    for (const item of textContent.items as any[]) {
+      if (!item.str || !item.str.trim()) continue;
+      items.push({
+        str: item.str,
+        y: item.transform?.[5] || 0,
+        x: item.transform?.[4] || 0,
+        height: item.height || 12
+      });
+    }
+
+    pageTexts.push({
+      pageNum: i,
+      items,
+      height: viewport.height
+    });
+  }
+
+  // Detect running heads (text that appears at same position on multiple pages)
+  const runningHeadTexts = new Set<string>();
+
+  if (removeRunningHeads && pdf.numPages > 2) {
+    // Group texts by approximate Y position (top 10% and bottom 10% of page)
+    const headerTexts = new Map<string, number>(); // text -> count
+    const footerTexts = new Map<string, number>();
+
+    for (const page of pageTexts) {
+      const topThreshold = page.height * 0.90; // top 10%
+      const bottomThreshold = page.height * 0.10; // bottom 10%
+
+      for (const item of page.items) {
+        const normalizedText = item.str.trim().toLowerCase();
+        if (normalizedText.length < 2) continue;
+
+        if (item.y > topThreshold) {
+          headerTexts.set(normalizedText, (headerTexts.get(normalizedText) || 0) + 1);
+        } else if (item.y < bottomThreshold) {
+          footerTexts.set(normalizedText, (footerTexts.get(normalizedText) || 0) + 1);
+        }
+      }
+    }
+
+    // If text appears on more than 30% of pages at header/footer position, it's a running head
+    const threshold = Math.max(2, Math.floor(pdf.numPages * 0.3));
+
+    for (const [text, count] of headerTexts) {
+      if (count >= threshold) {
+        runningHeadTexts.add(text);
+      }
+    }
+    for (const [text, count] of footerTexts) {
+      if (count >= threshold) {
+        runningHeadTexts.add(text);
+      }
+    }
+
+    // Also detect common running head patterns
+    const runningHeadPatterns = [
+      /^\d+$/, // Just page number
+      /^[IVXLCDM]+$/i, // Roman numerals
+      /^rozdział\s+[\dIVXLCDM]+$/i,
+      /^chapter\s+[\dIVXLCDM]+$/i,
+      /^część\s+[\dIVXLCDM]+$/i,
+    ];
+
+    for (const page of pageTexts) {
+      const topThreshold = page.height * 0.90;
+      const bottomThreshold = page.height * 0.10;
+
+      for (const item of page.items) {
+        if (item.y > topThreshold || item.y < bottomThreshold) {
+          const trimmed = item.str.trim();
+          for (const pattern of runningHeadPatterns) {
+            if (pattern.test(trimmed)) {
+              runningHeadTexts.add(trimmed.toLowerCase());
+              break;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // Second pass: extract text excluding running heads
+  let fullText = '';
+
+  for (const page of pageTexts) {
+    const topThreshold = page.height * 0.90;
+    const bottomThreshold = page.height * 0.10;
+
+    // Filter items
+    const filteredItems = page.items.filter(item => {
+      if (removeRunningHeads) {
+        // Skip if in header/footer zone and matches running head
+        if (item.y > topThreshold || item.y < bottomThreshold) {
+          if (runningHeadTexts.has(item.str.trim().toLowerCase())) {
+            return false;
+          }
+        }
+      }
+      return true;
+    });
+
+    // Sort by Y (descending) then X (ascending)
+    filteredItems.sort((a, b) => {
+      const yDiff = b.y - a.y;
+      if (Math.abs(yDiff) > 5) return yDiff;
+      return a.x - b.x;
+    });
 
     let lastY: number | null = null;
     let pageText = '';
 
-    for (const item of textContent.items as any[]) {
-      if (!item.str) continue;
+    for (const item of filteredItems) {
+      const currentY = item.y;
 
-      const currentY = item.transform?.[5]; // Y position
-
-      if (lastY !== null && currentY !== undefined) {
+      if (lastY !== null) {
         const yDiff = Math.abs(lastY - currentY);
 
-        // Large Y difference (> 25) = likely new paragraph
         if (yDiff > 25) {
           pageText += '\n\n';
-        }
-        // Any Y difference = at least add space
-        else if (yDiff > 1) {
+        } else if (yDiff > 1) {
           if (!pageText.endsWith(' ') && !pageText.endsWith('\n')) {
             pageText += ' ';
           }
-        }
-        // Same line - add space between segments if needed
-        else if (!pageText.endsWith(' ') && !pageText.endsWith('\n') && item.str.trim()) {
+        } else if (!pageText.endsWith(' ') && !pageText.endsWith('\n') && item.str.trim()) {
           pageText += ' ';
         }
       }
@@ -620,9 +730,125 @@ const parsePdfBuffer = async (buffer: ArrayBuffer): Promise<string> => {
   return cleanupWhitespacePdf(fullText);
 };
 
-export const extractTextFromPdf = async (file: File): Promise<string> => {
+/**
+ * Parse IDML file (InDesign Markup Language)
+ * IDML is a ZIP archive containing XML files
+ */
+const parseIdmlBuffer = async (buffer: ArrayBuffer): Promise<string> => {
+  const zip = new JSZip();
+  const loadedZip = await zip.loadAsync(buffer);
+
+  const textParts: string[] = [];
+
+  // IDML structure: Stories folder contains the actual text content
+  const storyFiles = Object.keys(loadedZip.files)
+    .filter(name => name.startsWith('Stories/') && name.endsWith('.xml'))
+    .sort();
+
+  for (const storyFile of storyFiles) {
+    const xmlContent = await loadedZip.files[storyFile].async('string');
+    const extractedText = extractTextFromIdmlStory(xmlContent);
+    if (extractedText.trim()) {
+      textParts.push(extractedText);
+    }
+  }
+
+  return textParts.join('\n\n');
+};
+
+/**
+ * Extract text from IDML Story XML
+ */
+const extractTextFromIdmlStory = (xmlContent: string): string => {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(xmlContent, 'text/xml');
+
+  const textParts: string[] = [];
+
+  // Process ParagraphStyleRange elements to maintain paragraph structure
+  const paragraphs = doc.querySelectorAll('ParagraphStyleRange');
+
+  for (const para of paragraphs) {
+    let paraText = '';
+
+    // Get all Content elements within this paragraph
+    const contents = para.querySelectorAll('Content');
+    for (const content of contents) {
+      paraText += content.textContent || '';
+    }
+
+    // Check for Br (break) elements
+    const hasBr = para.querySelector('Br') !== null;
+
+    const cleaned = cleanIdmlText(paraText);
+    if (cleaned.trim()) {
+      textParts.push(cleaned);
+    } else if (hasBr || paraText.includes(String.fromCharCode(0x0003))) {
+      // Empty paragraph with break = paragraph separator
+      textParts.push('');
+    }
+  }
+
+  // Fallback: if no paragraphs found, try Content elements directly
+  if (textParts.length === 0) {
+    const contents = doc.querySelectorAll('Content');
+    for (const content of contents) {
+      const text = cleanIdmlText(content.textContent || '');
+      if (text.trim()) {
+        textParts.push(text);
+      }
+    }
+  }
+
+  // Join with double newline for proper paragraph separation
+  return textParts
+    .join('\n\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+};
+
+/**
+ * Clean InDesign special characters from text
+ */
+const cleanIdmlText = (text: string): string => {
+  return text
+    // Remove InDesign special characters
+    .replace(/\uFEFF/g, '') // BOM
+    .replace(/\u2028/g, '\n') // Line separator
+    .replace(/\u2029/g, '\n\n') // Paragraph separator
+    .replace(/\u0003/g, '\n\n') // InDesign paragraph break
+    .replace(/\u0004/g, '\n') // InDesign forced line break
+    .replace(/\u0005/g, '\n') // InDesign column break
+    .replace(/\u0006/g, '\n\n') // InDesign frame break
+    .replace(/\u0007/g, '\n\n') // InDesign page break
+    .replace(/\u0008/g, '') // InDesign odd page break
+    .replace(/\u0018/g, '\t') // InDesign right indent tab
+    .replace(/\u0019/g, '') // InDesign indent to here
+    .replace(/\u200B/g, '') // Zero-width space
+    .replace(/\u200C/g, '') // Zero-width non-joiner
+    .replace(/\u200D/g, '') // Zero-width joiner
+    .replace(/\u00AD/g, '') // Soft hyphen (discretionary hyphen) - IMPORTANT!
+    .replace(/\u2011/g, '-') // Non-breaking hyphen
+    .replace(/\u2010/g, '-') // Hyphen
+    .replace(/\uF8E8/g, '') // InDesign end nested style here
+    .replace(/\uF702/g, '') // InDesign auto page number
+    .replace(/\uF703/g, '') // InDesign section marker
+    // Remove hyphenation breaks (word-hyphen-newline patterns)
+    .replace(/(\w)-\s*\n\s*(\w)/g, '$1$2') // Rejoin hyphenated words
+    // Clean up multiple spaces/newlines
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+};
+
+export const extractTextFromPdf = async (file: File, removeRunningHeads: boolean = true): Promise<string> => {
   const arrayBuffer = await file.arrayBuffer();
-  return parsePdfBuffer(arrayBuffer);
+  return parsePdfBuffer(arrayBuffer, removeRunningHeads);
+};
+
+export const extractTextFromIdml = async (file: File): Promise<string> => {
+  const arrayBuffer = await file.arrayBuffer();
+  return parseIdmlBuffer(arrayBuffer);
 };
 
 /**
@@ -639,7 +865,7 @@ export const extractTextFromDocx = async (file: File): Promise<string> => {
   return parseDocxBuffer(arrayBuffer);
 };
 
-export const extractTextFromZip = async (file: File): Promise<RawFile[]> => {
+export const extractTextFromZip = async (file: File, removeRunningHeads: boolean = true): Promise<RawFile[]> => {
   const zip = new JSZip();
   const loadedZip = await zip.loadAsync(file);
   const files: RawFile[] = [];
@@ -666,7 +892,10 @@ export const extractTextFromZip = async (file: File): Promise<RawFile[]> => {
         text = await parseDocxBuffer(buffer);
       } else if (ext === 'pdf') {
         const buffer = await fileEntry.async('arraybuffer');
-        text = await parsePdfBuffer(buffer);
+        text = await parsePdfBuffer(buffer, removeRunningHeads);
+      } else if (ext === 'idml') {
+        const buffer = await fileEntry.async('arraybuffer');
+        text = await parseIdmlBuffer(buffer);
       }
     } catch (e) {
       console.warn(`Failed to extract ${filename}`, e);
