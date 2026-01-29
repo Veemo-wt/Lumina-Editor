@@ -98,15 +98,121 @@ const ScannerView: React.FC<ScannerViewProps> = ({
     return () => clearInterval(interval);
   }, [isProcessing, stage]);
 
-  // Helper to render text with visible whitespace markers
-  const renderWithVisibleWhitespace = (text: string) => {
+  // Helper to render text with formatting (**bold**, *italic*, and footnotes) as actual styled text
+  const renderFormattedText = (text: string): React.ReactNode[] => {
+    const result: React.ReactNode[] = [];
+    let remaining = text;
+    let keyCounter = 0;
+
+    while (remaining.length > 0) {
+      // Look for footnote definition [^N]: content (must be at start of line or string)
+      const footnoteDefMatch = remaining.match(/^\[\^(\d+)\]:\s*/);
+      if (footnoteDefMatch) {
+        // This is a footnote definition - render as a styled footnote block
+        const footnoteNum = footnoteDefMatch[1];
+        remaining = remaining.slice(footnoteDefMatch[0].length);
+
+        // Find the rest of the footnote content (until next footnote def or end)
+        let footnoteContent = '';
+        const nextFootnoteIdx = remaining.search(/\n\[\^\d+\]:/);
+        if (nextFootnoteIdx !== -1) {
+          footnoteContent = remaining.slice(0, nextFootnoteIdx);
+          remaining = remaining.slice(nextFootnoteIdx + 1); // +1 to skip the newline
+        } else {
+          footnoteContent = remaining;
+          remaining = '';
+        }
+
+        result.push(
+          <span key={keyCounter++} className="block my-2 pl-4 border-l-2 border-gray-300 dark:border-gray-600 text-sm text-gray-600 dark:text-gray-400">
+            <sup className="text-xs font-bold text-brand-600 dark:text-brand-400 mr-1">[{footnoteNum}]</sup>
+            {renderFormattedText(footnoteContent.trim())}
+          </span>
+        );
+        continue;
+      }
+
+      // Look for footnote separator ---
+      if (remaining.startsWith('---')) {
+        result.push(
+          <span key={keyCounter++} className="block my-4 border-t border-gray-300 dark:border-gray-700 pt-2">
+            <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Przypisy</span>
+          </span>
+        );
+        remaining = remaining.slice(3).trimStart();
+        continue;
+      }
+
+      // Look for footnote reference [^N]
+      const footnoteRefMatch = remaining.match(/^\[\^(\d+)\]/);
+      if (footnoteRefMatch) {
+        const footnoteNum = footnoteRefMatch[1];
+        result.push(
+          <sup key={keyCounter++} className="text-xs font-bold text-brand-600 dark:text-brand-400 cursor-help" title={`Zobacz przypis ${footnoteNum}`}>
+            [{footnoteNum}]
+          </sup>
+        );
+        remaining = remaining.slice(footnoteRefMatch[0].length);
+        continue;
+      }
+
+      // Look for **bold** first (takes precedence)
+      const boldMatch = remaining.match(/^\*\*(.+?)\*\*/);
+      if (boldMatch) {
+        result.push(<strong key={keyCounter++} className="font-bold">{renderFormattedText(boldMatch[1])}</strong>);
+        remaining = remaining.slice(boldMatch[0].length);
+        continue;
+      }
+
+      // Look for *italic* (but not **)
+      const italicMatch = remaining.match(/^\*([^*]+?)\*/);
+      if (italicMatch && !remaining.startsWith('**')) {
+        result.push(<em key={keyCounter++} className="italic">{renderFormattedText(italicMatch[1])}</em>);
+        remaining = remaining.slice(italicMatch[0].length);
+        continue;
+      }
+
+      // Find next marker position
+      const nextBoldIdx = remaining.indexOf('**');
+      const nextItalicIdx = remaining.search(/(?<!\*)\*(?!\*)/);
+      const nextFootnoteRefIdx = remaining.search(/\[\^\d+\]/);
+      const nextFootnoteDefIdx = remaining.search(/\n\[\^\d+\]:/);
+      const nextSeparatorIdx = remaining.indexOf('---');
+
+      let nextMarkerIdx = remaining.length;
+      if (nextBoldIdx !== -1) nextMarkerIdx = Math.min(nextMarkerIdx, nextBoldIdx);
+      if (nextItalicIdx !== -1) nextMarkerIdx = Math.min(nextMarkerIdx, nextItalicIdx);
+      if (nextFootnoteRefIdx !== -1) nextMarkerIdx = Math.min(nextMarkerIdx, nextFootnoteRefIdx);
+      if (nextFootnoteDefIdx !== -1) nextMarkerIdx = Math.min(nextMarkerIdx, nextFootnoteDefIdx + 1); // +1 to include the newline
+      if (nextSeparatorIdx !== -1) nextMarkerIdx = Math.min(nextMarkerIdx, nextSeparatorIdx);
+
+      if (nextMarkerIdx > 0) {
+        // Add plain text before the marker
+        result.push(remaining.slice(0, nextMarkerIdx));
+        remaining = remaining.slice(nextMarkerIdx);
+      } else if (remaining.length > 0) {
+        // No more markers, add rest as plain text
+        result.push(remaining);
+        break;
+      }
+    }
+
+    return result;
+  };
+
+  // Helper to render text with visible whitespace markers AND formatting
+  const renderWithVisibleWhitespace = (text: string, showFormatting: boolean = true) => {
     const hasMultipleSpaces = /  +/.test(text);
     const hasNewlines = /\n/.test(text);
 
-    if (!hasMultipleSpaces && !hasNewlines) return text;
+    // First handle whitespace
+    if (!hasMultipleSpaces && !hasNewlines) {
+      return showFormatting ? renderFormattedText(text) : text;
+    }
 
     const result: React.ReactNode[] = [];
     let i = 0;
+    let keyCounter = 0;
 
     while (i < text.length) {
       if (text[i] === ' ' && text[i + 1] === ' ') {
@@ -114,7 +220,7 @@ const ScannerView: React.FC<ScannerViewProps> = ({
         let spaceCount = 0;
         while (text[i + spaceCount] === ' ') spaceCount++;
         result.push(
-          <span key={i} className="inline-flex">
+          <span key={`ws-${keyCounter++}`} className="inline-flex">
             {Array(spaceCount).fill(null).map((_, idx) => (
               <span key={idx} className="inline-block w-[0.5em] bg-amber-300/60 dark:bg-amber-500/40 border-b border-amber-400 dark:border-amber-500 mx-px">&nbsp;</span>
             ))}
@@ -122,17 +228,21 @@ const ScannerView: React.FC<ScannerViewProps> = ({
         );
         i += spaceCount;
       } else if (text[i] === '\n') {
-        result.push(<span key={i} className="text-amber-500 dark:text-amber-400 text-[10px]">↵</span>);
+        result.push(<span key={`nl-${keyCounter++}`} className="text-amber-500 dark:text-amber-400 text-[10px]">↵</span>);
         result.push('\n');
         i++;
       } else {
-        // Regular character
+        // Regular text segment - collect until whitespace issue
         let regularText = '';
         while (i < text.length && text[i] !== '\n' && !(text[i] === ' ' && text[i + 1] === ' ')) {
           regularText += text[i];
           i++;
         }
-        result.push(regularText);
+        if (showFormatting) {
+          result.push(<span key={`txt-${keyCounter++}`}>{renderFormattedText(regularText)}</span>);
+        } else {
+          result.push(regularText);
+        }
       }
     }
 
@@ -326,7 +436,7 @@ const ScannerView: React.FC<ScannerViewProps> = ({
       // Add text before this mistake
       if (mistake.globalStart > lastEnd) {
         elements.push(
-          <span key={`text-${idx}`} style={{ whiteSpace: 'pre-wrap' }}>{text.slice(lastEnd, mistake.globalStart)}</span>
+          <span key={`text-${idx}`} style={{ whiteSpace: 'pre-wrap' }}>{renderFormattedText(text.slice(lastEnd, mistake.globalStart))}</span>
         );
       }
 
@@ -373,15 +483,15 @@ const ScannerView: React.FC<ScannerViewProps> = ({
           style={{ whiteSpace: 'pre-wrap' }}
           onClick={() => setSelectedMistakeId(mistake.id)}
         >
-          {(isWhitespaceOnly || (isSelected && hasSpecialWhitespace)) ? renderWithVisibleWhitespace(displayText) : displayText}
+          {(isWhitespaceOnly || (isSelected && hasSpecialWhitespace)) ? renderWithVisibleWhitespace(displayText) : renderFormattedText(displayText)}
           {!isSelected && !isApproved && (
             <span className="absolute -top-8 left-0 bg-gray-900 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10 pointer-events-none">
-              → {mistake.suggestedFix}
+              → {renderFormattedText(mistake.suggestedFix)}
             </span>
           )}
           {!isSelected && isApproved && (
             <span className="absolute -top-8 left-0 bg-gray-900 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10 pointer-events-none">
-              było: {text.slice(mistake.globalStart, mistake.globalEnd)}
+              było: {renderFormattedText(text.slice(mistake.globalStart, mistake.globalEnd))}
             </span>
           )}
         </mark>
@@ -392,7 +502,7 @@ const ScannerView: React.FC<ScannerViewProps> = ({
 
     // Add remaining text
     if (lastEnd < text.length) {
-      elements.push(<span key="text-end" style={{ whiteSpace: 'pre-wrap' }}>{text.slice(lastEnd)}</span>);
+      elements.push(<span key="text-end" style={{ whiteSpace: 'pre-wrap' }}>{renderFormattedText(text.slice(lastEnd))}</span>);
     }
 
     return <span style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{elements}</span>;
@@ -591,10 +701,10 @@ const ScannerView: React.FC<ScannerViewProps> = ({
                   </div>
                 </div>
                 <div className="text-sm font-medium text-red-600 dark:text-red-400 line-through mb-1">
-                  {mistake.originalText.slice(0, 40)}{mistake.originalText.length > 40 ? '...' : ''}
+                  {renderFormattedText(mistake.originalText.slice(0, 40))}{mistake.originalText.length > 40 ? '...' : ''}
                 </div>
                 <div className="text-sm text-green-700 dark:text-green-400">
-                  → {mistake.suggestedFix.slice(0, 40)}{mistake.suggestedFix.length > 40 ? '...' : ''}
+                  → {renderFormattedText(mistake.suggestedFix.slice(0, 40))}{mistake.suggestedFix.length > 40 ? '...' : ''}
                 </div>
               </div>
             ))

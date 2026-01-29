@@ -758,37 +758,110 @@ const parseIdmlBuffer = async (buffer: ArrayBuffer): Promise<string> => {
 
 /**
  * Extract text from IDML Story XML
- * Properly handles paragraph breaks (Br elements) and Content elements
+ * Properly handles paragraph breaks (Br elements), Content elements, and Footnotes
  */
 const extractTextFromIdmlStory = (xmlContent: string): string => {
   const parser = new DOMParser();
   const doc = parser.parseFromString(xmlContent, 'text/xml');
 
   const textParts: string[] = [];
+  const footnotes: string[] = [];
+  let footnoteCounter = 0;
+
+  /**
+   * Extract text from a CharacterStyleRange, handling italic style
+   */
+  const extractCharacterRangeText = (charRange: Element): string => {
+    let text = '';
+    const style = charRange.getAttribute('AppliedCharacterStyle') || '';
+    const isItalic = style.includes('Italic') || style.includes('StyleItalic');
+
+    for (const child of charRange.childNodes) {
+      if (child.nodeType === Node.ELEMENT_NODE) {
+        const elem = child as Element;
+        if (elem.tagName === 'Content') {
+          const content = elem.textContent || '';
+          if (isItalic && content.trim()) {
+            text += `*${content}*`;
+          } else {
+            text += content;
+          }
+        }
+      }
+    }
+    return text;
+  };
+
+  /**
+   * Extract full footnote content with formatting
+   */
+  const extractFootnoteContent = (footnoteElem: Element): string => {
+    let footnoteText = '';
+
+    // Find all CharacterStyleRange elements within the footnote
+    const charRanges = footnoteElem.querySelectorAll('CharacterStyleRange');
+
+    for (const charRange of charRanges) {
+      // Skip FootnoteRef style (that's the reference marker, not content)
+      const style = charRange.getAttribute('AppliedCharacterStyle') || '';
+      if (style.includes('FootnoteRef')) continue;
+
+      footnoteText += extractCharacterRangeText(charRange);
+    }
+
+    return cleanIdmlText(footnoteText).trim();
+  };
 
   // Process each ParagraphStyleRange - each one is a paragraph
   const paragraphs = doc.querySelectorAll('ParagraphStyleRange');
 
   for (const para of paragraphs) {
+    // Skip paragraphs that are inside Footnote elements (we'll process them separately)
+    if (para.closest('Footnote')) continue;
+
     // Get all child elements in order (Content and Br)
     const children = para.querySelectorAll('CharacterStyleRange');
     let currentParagraph = '';
 
     for (const charRange of children) {
-      // Process children of CharacterStyleRange in order
-      for (const child of charRange.childNodes) {
-        if (child.nodeType === Node.ELEMENT_NODE) {
-          const elem = child as Element;
-          if (elem.tagName === 'Content') {
-            // Add content text
-            currentParagraph += elem.textContent || '';
-          } else if (elem.tagName === 'Br') {
-            // Br means end of paragraph - save current and start new
-            const cleaned = cleanIdmlText(currentParagraph);
-            if (cleaned.trim()) {
-              textParts.push(cleaned);
+      const style = charRange.getAttribute('AppliedCharacterStyle') || '';
+      const isItalic = style.includes('Italic') || style.includes('StyleItalic');
+
+      // Check if this CharacterStyleRange contains a Footnote
+      const footnoteElem = charRange.querySelector('Footnote');
+
+      if (footnoteElem) {
+        // Extract footnote content
+        footnoteCounter++;
+        const footnoteContent = extractFootnoteContent(footnoteElem);
+
+        if (footnoteContent) {
+          // Add footnote reference marker in main text
+          currentParagraph += `[^${footnoteCounter}]`;
+
+          // Store footnote for later
+          footnotes.push(`[^${footnoteCounter}]: ${footnoteContent}`);
+        }
+      } else {
+        // Regular character range - process children
+        for (const child of charRange.childNodes) {
+          if (child.nodeType === Node.ELEMENT_NODE) {
+            const elem = child as Element;
+            if (elem.tagName === 'Content') {
+              const content = elem.textContent || '';
+              if (isItalic && content.trim()) {
+                currentParagraph += `*${content}*`;
+              } else {
+                currentParagraph += content;
+              }
+            } else if (elem.tagName === 'Br') {
+              // Br means end of paragraph - save current and start new
+              const cleaned = cleanIdmlText(currentParagraph);
+              if (cleaned.trim()) {
+                textParts.push(cleaned);
+              }
+              currentParagraph = '';
             }
-            currentParagraph = '';
           }
         }
       }
@@ -812,11 +885,18 @@ const extractTextFromIdmlStory = (xmlContent: string): string => {
     }
   }
 
-  // Join with double newline for proper paragraph separation
-  return textParts
+  // Combine main text with footnotes at the end
+  let result = textParts
     .join('\n\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
+
+  // Append footnotes section if any exist
+  if (footnotes.length > 0) {
+    result += '\n\n---\n\n' + footnotes.join('\n\n');
+  }
+
+  return result;
 };
 
 /**
@@ -866,18 +946,73 @@ export const extractTextFromIdml = async (file: File): Promise<string> => {
 /**
  * Helper to process ArrayBuffer for Docx
  * Preserves paragraph structure (single newlines are real paragraphs in DOCX)
+ *
+ * @param buffer - ArrayBuffer of the DOCX file
+ * @param preserveFormatting - If true, bold/italic will be preserved using markers: **bold** and *italic*
  */
-const parseDocxBuffer = async (buffer: ArrayBuffer): Promise<string> => {
-  const result = await mammoth.extractRawText({ arrayBuffer: buffer });
-  return cleanupWhitespaceBasic(result.value);
+const parseDocxBuffer = async (buffer: ArrayBuffer, preserveFormatting: boolean = false): Promise<string> => {
+  if (!preserveFormatting) {
+    // Original behavior - extract raw text only
+    const result = await mammoth.extractRawText({ arrayBuffer: buffer });
+    return cleanupWhitespaceBasic(result.value);
+  }
+
+  // New behavior - preserve bold and italic using markers
+  const result = await mammoth.convertToHtml({ arrayBuffer: buffer });
+  const html = result.value;
+
+  // Parse HTML and convert to text with formatting markers
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(html, 'text/html');
+
+  const extractTextWithFormatting = (node: Node): string => {
+    let text = '';
+
+    for (const child of node.childNodes) {
+      if (child.nodeType === Node.TEXT_NODE) {
+        text += child.textContent || '';
+      } else if (child.nodeType === Node.ELEMENT_NODE) {
+        const elem = child as Element;
+        const tagName = elem.tagName.toLowerCase();
+
+        if (tagName === 'p') {
+          // Paragraph - add content and newline
+          text += extractTextWithFormatting(elem) + '\n';
+        } else if (tagName === 'br') {
+          // Line break
+          text += '\n';
+        } else if (tagName === 'strong' || tagName === 'b') {
+          // Bold - wrap with **
+          const innerText = extractTextWithFormatting(elem);
+          if (innerText.trim()) {
+            text += `**${innerText}**`;
+          }
+        } else if (tagName === 'em' || tagName === 'i') {
+          // Italic - wrap with *
+          const innerText = extractTextWithFormatting(elem);
+          if (innerText.trim()) {
+            text += `*${innerText}*`;
+          }
+        } else {
+          // Other elements - just extract text recursively
+          text += extractTextWithFormatting(elem);
+        }
+      }
+    }
+
+    return text;
+  };
+
+  const extractedText = extractTextWithFormatting(doc.body);
+  return cleanupWhitespaceBasic(extractedText);
 };
 
-export const extractTextFromDocx = async (file: File): Promise<string> => {
+export const extractTextFromDocx = async (file: File, preserveFormatting: boolean = false): Promise<string> => {
   const arrayBuffer = await file.arrayBuffer();
-  return parseDocxBuffer(arrayBuffer);
+  return parseDocxBuffer(arrayBuffer, preserveFormatting);
 };
 
-export const extractTextFromZip = async (file: File, removeRunningHeads: boolean = true): Promise<RawFile[]> => {
+export const extractTextFromZip = async (file: File, removeRunningHeads: boolean = true, preserveDocxFormatting: boolean = true): Promise<RawFile[]> => {
   const zip = new JSZip();
   const loadedZip = await zip.loadAsync(file);
   const files: RawFile[] = [];
@@ -901,7 +1036,7 @@ export const extractTextFromZip = async (file: File, removeRunningHeads: boolean
         text = cleanupWhitespaceBasic(await fileEntry.async('string'));
       } else if (ext === 'docx') {
         const buffer = await fileEntry.async('arraybuffer');
-        text = await parseDocxBuffer(buffer);
+        text = await parseDocxBuffer(buffer, preserveDocxFormatting);
       } else if (ext === 'pdf') {
         const buffer = await fileEntry.async('arraybuffer');
         text = await parsePdfBuffer(buffer, removeRunningHeads);
@@ -922,13 +1057,104 @@ export const extractTextFromZip = async (file: File, removeRunningHeads: boolean
   return files;
 };
 
-export const generateDocxBlob = async (text: string): Promise<Blob> => {
-  const paragraphs = text.split('\n').map(line =>
-    new Paragraph({
-      children: [new TextRun(line)],
+export const generateDocxBlob = async (text: string, preserveFormatting: boolean = false): Promise<Blob> => {
+  if (!preserveFormatting) {
+    // Original behavior - plain text only
+    const paragraphs = text.split('\n').map(line =>
+      new Paragraph({
+        children: [new TextRun(line)],
+        spacing: { after: 120 }
+      })
+    );
+
+    const doc = new Document({
+      sections: [{
+        properties: {},
+        children: paragraphs,
+      }],
+    });
+
+    return await Packer.toBlob(doc);
+  }
+
+  // New behavior - parse formatting markers and create styled runs
+  const paragraphs = text.split('\n').map(line => {
+    const children: TextRun[] = [];
+
+    // Regex to find **bold** and *italic* markers
+    // Bold: **text** (non-greedy)
+    // Italic: *text* (non-greedy, but not **)
+    // We need to handle nesting and overlaps carefully
+
+    let remaining = line;
+
+    while (remaining.length > 0) {
+      // Look for the first marker
+      const boldMatch = remaining.match(/^\*\*(.+?)\*\*/);
+      const italicMatch = remaining.match(/^\*([^*]+?)\*/);
+      const boldIndex = remaining.indexOf('**');
+      const italicIndex = remaining.indexOf('*');
+
+      // Find plain text before any marker
+      let nextMarkerIndex = remaining.length;
+
+      if (boldIndex !== -1) {
+        nextMarkerIndex = Math.min(nextMarkerIndex, boldIndex);
+      }
+      if (italicIndex !== -1 && (boldIndex === -1 || italicIndex < boldIndex || (italicIndex === boldIndex + 1))) {
+        // Only consider single * if it's not the start of **
+        if (!(italicIndex === boldIndex)) {
+          nextMarkerIndex = Math.min(nextMarkerIndex, italicIndex);
+        }
+      }
+
+      // If there's plain text before the marker, add it
+      if (nextMarkerIndex > 0 && (boldMatch === null || boldIndex > 0) && (italicMatch === null || italicIndex > 0)) {
+        const plainText = remaining.slice(0, nextMarkerIndex);
+        if (plainText) {
+          children.push(new TextRun(plainText));
+        }
+        remaining = remaining.slice(nextMarkerIndex);
+        continue;
+      }
+
+      // Check for bold first (** takes precedence over *)
+      if (boldMatch && remaining.startsWith('**')) {
+        children.push(new TextRun({
+          text: boldMatch[1],
+          bold: true
+        }));
+        remaining = remaining.slice(boldMatch[0].length);
+        continue;
+      }
+
+      // Check for italic
+      if (italicMatch && remaining.startsWith('*') && !remaining.startsWith('**')) {
+        children.push(new TextRun({
+          text: italicMatch[1],
+          italics: true
+        }));
+        remaining = remaining.slice(italicMatch[0].length);
+        continue;
+      }
+
+      // No more markers found - add rest as plain text
+      if (remaining) {
+        children.push(new TextRun(remaining));
+      }
+      break;
+    }
+
+    // If no children were created, add empty run to avoid empty paragraph
+    if (children.length === 0) {
+      children.push(new TextRun(''));
+    }
+
+    return new Paragraph({
+      children,
       spacing: { after: 120 }
-    })
-  );
+    });
+  });
 
   const doc = new Document({
     sections: [{
@@ -975,11 +1201,43 @@ const detectInDesignWordBreaks = (text: string): Array<{ start: number; end: num
   return breaks;
 };
 
+/**
+ * Detect formatting markers (**bold** and *italic*) positions
+ * Returns positions of markers to exclude from formatting error detection
+ */
+const detectFormattingMarkers = (text: string): Array<{ start: number; end: number }> => {
+  const markers: Array<{ start: number; end: number }> = [];
+
+  // Detect **bold** markers - just the ** parts, not the content
+  const boldRegex = /\*\*(.+?)\*\*/g;
+  let match;
+  while ((match = boldRegex.exec(text)) !== null) {
+    // Opening **
+    markers.push({ start: match.index, end: match.index + 2 });
+    // Closing **
+    markers.push({ start: match.index + match[0].length - 2, end: match.index + match[0].length });
+  }
+
+  // Detect *italic* markers - just the * parts, avoiding **
+  const italicRegex = /(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g;
+  while ((match = italicRegex.exec(text)) !== null) {
+    // Opening *
+    markers.push({ start: match.index, end: match.index + 1 });
+    // Closing *
+    markers.push({ start: match.index + match[0].length - 1, end: match.index + match[0].length });
+  }
+
+  return markers;
+};
+
 export const detectFormattingErrors = (text: string, indesignImport: boolean = false): LocalMistake[] => {
   const mistakes: LocalMistake[] = [];
 
   // Detect InDesign word breaks if option is enabled
   const indesignBreaks = indesignImport ? detectInDesignWordBreaks(text) : [];
+
+  // Detect formatting markers to exclude them from error detection
+  const formattingMarkers = detectFormattingMarkers(text);
 
   // Helper to check if a position is within an InDesign break
   const isInDesignBreak = (start: number, end: number): boolean => {
@@ -987,6 +1245,15 @@ export const detectFormattingErrors = (text: string, indesignImport: boolean = f
       (start >= br.start && start < br.end) ||
       (end > br.start && end <= br.end) ||
       (start <= br.start && end >= br.end)
+    );
+  };
+
+  // Helper to check if a position overlaps with formatting markers
+  const isFormattingMarker = (start: number, end: number): boolean => {
+    return formattingMarkers.some(marker =>
+      (start >= marker.start && start < marker.end) ||
+      (end > marker.start && end <= marker.end) ||
+      (start <= marker.start && end >= marker.end)
     );
   };
 
@@ -1223,6 +1490,11 @@ export const detectFormattingErrors = (text: string, indesignImport: boolean = f
 
       // Skip if this is within an InDesign word break
       if (indesignImport && isInDesignBreak(match.index, match.index + originalText.length)) {
+        continue;
+      }
+
+      // Skip if this overlaps with formatting markers (**bold** or *italic*)
+      if (isFormattingMarker(match.index, match.index + originalText.length)) {
         continue;
       }
 

@@ -39,7 +39,9 @@ const FileUpload: React.FC<Props> = ({ onFileLoaded }) => {
             file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || 
             file.name.endsWith('.docx')
           ) {
-            const text = await extractTextFromDocx(file);
+            // Import DOCX with formatting markers preserved by default
+            // User can later decide if they want to export with formatting
+            const text = await extractTextFromDocx(file, true);
             if (!text.trim()) throw new Error("No text found in DOCX.");
             files.push({ name: file.name, content: text });
           } else {

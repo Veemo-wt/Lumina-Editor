@@ -28,6 +28,93 @@ interface RawMistake {
     category: string;
 }
 
+/**
+ * Preserves formatting markers (**bold** and *italic*) from original text in the suggested fix.
+ * AI often strips these markers, so we need to restore them.
+ */
+const preserveFormattingMarkers = (original: string, suggested: string): string => {
+    // Extract formatting info from original
+    const boldMatches: Array<{ text: string; start: number; end: number }> = [];
+    const italicMatches: Array<{ text: string; start: number; end: number }> = [];
+
+    // Find **bold** segments
+    const boldRegex = /\*\*(.+?)\*\*/g;
+    let match;
+    while ((match = boldRegex.exec(original)) !== null) {
+        boldMatches.push({
+            text: match[1], // text without markers
+            start: match.index,
+            end: match.index + match[0].length
+        });
+    }
+
+    // Find *italic* segments (but not **)
+    const italicRegex = /(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g;
+    while ((match = italicRegex.exec(original)) !== null) {
+        italicMatches.push({
+            text: match[1],
+            start: match.index,
+            end: match.index + match[0].length
+        });
+    }
+
+    // If no formatting in original, return suggested as-is
+    if (boldMatches.length === 0 && italicMatches.length === 0) {
+        return suggested;
+    }
+
+    // Check if suggested already has formatting (AI preserved it)
+    const suggestedHasBold = /\*\*.+?\*\*/.test(suggested);
+    const suggestedHasItalic = /(?<!\*)\*(?!\*).+?(?<!\*)\*(?!\*)/.test(suggested);
+
+    if (suggestedHasBold || suggestedHasItalic) {
+        // AI preserved formatting, return as-is
+        return suggested;
+    }
+
+    // Strip markers from original for comparison
+    const originalStripped = original
+        .replace(/\*\*(.+?)\*\*/g, '$1')
+        .replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g, '$1');
+
+    // If suggested equals stripped original, the fix was just about text not formatting
+    // Try to re-apply formatting markers
+
+    let result = suggested;
+
+    // Re-apply bold formatting
+    for (const bold of boldMatches) {
+        // Find where this bold text appears in suggested
+        const idx = result.indexOf(bold.text);
+        if (idx !== -1) {
+            // Check if already has markers
+            const before = result.slice(Math.max(0, idx - 2), idx);
+            const after = result.slice(idx + bold.text.length, idx + bold.text.length + 2);
+            if (before !== '**' && after !== '**') {
+                result = result.slice(0, idx) + '**' + bold.text + '**' + result.slice(idx + bold.text.length);
+            }
+        }
+    }
+
+    // Re-apply italic formatting
+    for (const italic of italicMatches) {
+        const idx = result.indexOf(italic.text);
+        if (idx !== -1) {
+            // Check if already has markers (and not part of bold)
+            const before = result.slice(Math.max(0, idx - 1), idx);
+            const after = result.slice(idx + italic.text.length, idx + italic.text.length + 1);
+            const beforeBold = result.slice(Math.max(0, idx - 2), idx);
+            const afterBold = result.slice(idx + italic.text.length, idx + italic.text.length + 2);
+
+            if (before !== '*' && after !== '*' && beforeBold !== '**' && afterBold !== '**') {
+                result = result.slice(0, idx) + '*' + italic.text + '*' + result.slice(idx + italic.text.length);
+            }
+        }
+    }
+
+    return result;
+};
+
 const createClient = (apiKey: string) => {
     if (!apiKey) throw new Error("API Key is missing");
     return new OpenAI({
@@ -115,7 +202,8 @@ export const scanChunk = async (request: ScanRequest): Promise<ScanResult> => {
         "Do NOT process or analyze the LOOKBACK section - it's only for context",
         "Return JSON format only",
         "ALWAYS assign a category to each mistake - never leave it empty",
-        "For PUNCTUATION: Be VERY conservative - only report CLEAR errors. When in doubt, do NOT report. Polish punctuation is flexible."
+        "For PUNCTUATION: Be VERY conservative - only report CLEAR errors. When in doubt, do NOT report. Polish punctuation is flexible.",
+        "PRESERVE FORMATTING: If original text contains **bold** or *italic* markers, keep them in the suggested fix in the same positions"
     ];
 
     // Only add anti-style rule if style check is disabled
@@ -200,11 +288,14 @@ ${chunkText}`;
                     ? raw.category as Mistake['category']
                     : 'other';
 
+                // Preserve formatting markers from original in the suggested fix
+                const suggestedWithFormatting = preserveFormattingMarkers(raw.original, raw.suggested);
+
                 mistakes.push({
                     id: `${chunkId}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
                     chunkId,
                     originalText: raw.original,
-                    suggestedFix: raw.suggested,
+                    suggestedFix: suggestedWithFormatting,
                     reason: raw.reason || 'Błąd wykryty przez AI',
                     category,
                     position,

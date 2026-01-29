@@ -26,7 +26,8 @@ const DEFAULT_CONFIG: TranslationConfig = {
     checkLocalization: false,
     checkFormatting: true,
     wrapThoughtsInQuotes: false,
-    indesignImport: false
+    indesignImport: false,
+    preserveDocxFormatting: true // domyślnie włączone
   },
   glossary: [],
   characterBible: [],
@@ -440,7 +441,7 @@ const App: React.FC = () => {
     const correctedChunks = chunks.map(chunk => applyCorrectionToChunk(chunk));
     const fullText = correctedChunks.join('\n\n');
 
-    const blob = await generateDocxBlob(fullText);
+    const blob = await generateDocxBlob(fullText, config.scanOptions.preserveDocxFormatting);
     saveBlob(`${fileName}_Corrected.docx`, blob);
     setIsExporting(false);
   };

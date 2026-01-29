@@ -92,8 +92,9 @@ export interface ScanOptions {
   checkPunctuation: boolean;
   checkLocalization: boolean;
   checkFormatting: boolean;
-    wrapThoughtsInQuotes: boolean;
+  wrapThoughtsInQuotes: boolean;
   indesignImport: boolean;
+  preserveDocxFormatting: boolean; // Zachowaj bold/italic przy imporcie i eksporcie DOCX
 }
 
 export interface TranslationConfig {
