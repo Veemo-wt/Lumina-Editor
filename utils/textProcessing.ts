@@ -758,6 +758,7 @@ const parseIdmlBuffer = async (buffer: ArrayBuffer): Promise<string> => {
 
 /**
  * Extract text from IDML Story XML
+ * Properly handles paragraph breaks (Br elements) and Content elements
  */
 const extractTextFromIdmlStory = (xmlContent: string): string => {
   const parser = new DOMParser();
@@ -765,27 +766,38 @@ const extractTextFromIdmlStory = (xmlContent: string): string => {
 
   const textParts: string[] = [];
 
-  // Process ParagraphStyleRange elements to maintain paragraph structure
+  // Process each ParagraphStyleRange - each one is a paragraph
   const paragraphs = doc.querySelectorAll('ParagraphStyleRange');
 
   for (const para of paragraphs) {
-    let paraText = '';
+    // Get all child elements in order (Content and Br)
+    const children = para.querySelectorAll('CharacterStyleRange');
+    let currentParagraph = '';
 
-    // Get all Content elements within this paragraph
-    const contents = para.querySelectorAll('Content');
-    for (const content of contents) {
-      paraText += content.textContent || '';
+    for (const charRange of children) {
+      // Process children of CharacterStyleRange in order
+      for (const child of charRange.childNodes) {
+        if (child.nodeType === Node.ELEMENT_NODE) {
+          const elem = child as Element;
+          if (elem.tagName === 'Content') {
+            // Add content text
+            currentParagraph += elem.textContent || '';
+          } else if (elem.tagName === 'Br') {
+            // Br means end of paragraph - save current and start new
+            const cleaned = cleanIdmlText(currentParagraph);
+            if (cleaned.trim()) {
+              textParts.push(cleaned);
+            }
+            currentParagraph = '';
+          }
+        }
+      }
     }
 
-    // Check for Br (break) elements
-    const hasBr = para.querySelector('Br') !== null;
-
-    const cleaned = cleanIdmlText(paraText);
+    // Don't forget remaining text in the paragraph
+    const cleaned = cleanIdmlText(currentParagraph);
     if (cleaned.trim()) {
       textParts.push(cleaned);
-    } else if (hasBr || paraText.includes(String.fromCharCode(0x0003))) {
-      // Empty paragraph with break = paragraph separator
-      textParts.push('');
     }
   }
 
@@ -1050,44 +1062,51 @@ export const detectFormattingErrors = (text: string, indesignImport: boolean = f
     // ===== MISSING SPACES =====
 
     // No space after comma (followed by letter, not quote or newline)
+    // BUT NOT if followed by newline
     {
-      regex: /,([a-zA-ZąćęłńóśźżĄĆĘŁŃÓŚŹŻ])/g,
+      regex: /,(?!\n)([a-zA-ZąćęłńóśźżĄĆĘŁŃÓŚŹŻ])/g,
       reason: 'Brak spacji po przecinku',
       fix: (m) => ', ' + m.slice(1)
     },
     // No space after period (followed by capital letter - new sentence)
+    // BUT NOT if followed by newline (paragraph break)
     {
-      regex: /\.([A-ZĄĆĘŁŃÓŚŹŻ])/g,
+      regex: /\.(?!\n)([A-ZĄĆĘŁŃÓŚŹŻ])/g,
       reason: 'Brak spacji po kropce',
       fix: (m) => '. ' + m.slice(1)
     },
     // No space after exclamation mark (followed by capital)
+    // BUT NOT if followed by newline
     {
-      regex: /!([A-ZĄĆĘŁŃÓŚŹŻ])/g,
+      regex: /!(?!\n)([A-ZĄĆĘŁŃÓŚŹŻ])/g,
       reason: 'Brak spacji po wykrzykniku',
       fix: (m) => '! ' + m.slice(1)
     },
     // No space after question mark (followed by capital)
+    // BUT NOT if followed by newline
     {
-      regex: /\?([A-ZĄĆĘŁŃÓŚŹŻ])/g,
+      regex: /\?(?!\n)([A-ZĄĆĘŁŃÓŚŹŻ])/g,
       reason: 'Brak spacji po znaku zapytania',
       fix: (m) => '? ' + m.slice(1)
     },
     // No space after colon (followed by letter, not in time format)
+    // BUT NOT if followed by newline
     {
-      regex: /:([a-zA-ZąćęłńóśźżĄĆĘŁŃÓŚŹŻ])/g,
+      regex: /:(?!\n)([a-zA-ZąćęłńóśźżĄĆĘŁŃÓŚŹŻ])/g,
       reason: 'Brak spacji po dwukropku',
       fix: (m) => ': ' + m.slice(1)
     },
     // No space after semicolon
+    // BUT NOT if followed by newline
     {
-      regex: /;([a-zA-ZąćęłńóśźżĄĆĘŁŃÓŚŹŻ])/g,
+      regex: /;(?!\n)([a-zA-ZąćęłńóśźżĄĆĘŁŃÓŚŹŻ])/g,
       reason: 'Brak spacji po średniku',
       fix: (m) => '; ' + m.slice(1)
     },
     // No space after closing parenthesis (followed by letter)
+    // BUT NOT if followed by newline
     {
-      regex: /\)([a-zA-ZąćęłńóśźżĄĆĘŁŃÓŚŹŻ])/g,
+      regex: /\)(?!\n)([a-zA-ZąćęłńóśźżĄĆĘŁŃÓŚŹŻ])/g,
       reason: 'Brak spacji po nawiasie zamykającym',
       fix: (m) => ') ' + m.slice(1)
     },
@@ -1155,8 +1174,9 @@ export const detectFormattingErrors = (text: string, indesignImport: boolean = f
       fix: () => '…'
     },
     // No space after ellipsis when followed by capital (new sentence)
+    // BUT NOT if followed by newline
     {
-      regex: /…([A-ZĄĆĘŁŃÓŚŹŻ])/g,
+      regex: /…(?!\n)([A-ZĄĆĘŁŃÓŚŹŻ])/g,
       reason: 'Brak spacji po wielokropku',
       fix: (m) => '… ' + m.slice(1)
     },
