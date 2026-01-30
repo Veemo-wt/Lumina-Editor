@@ -78,6 +78,7 @@ const ScannerView: React.FC<ScannerViewProps> = ({
   const [showOnlyPending, setShowOnlyPending] = useState(true);
   const textDisplayRef = useRef<HTMLDivElement>(null);
   const [processingMessageIdx, setProcessingMessageIdx] = useState(0);
+  const [currentPage, setCurrentPage] = useState(0);
   const [messageFading, setMessageFading] = useState(false);
 
   // Rotate processing messages every 3.5 seconds with fade effect
@@ -99,11 +100,11 @@ const ScannerView: React.FC<ScannerViewProps> = ({
   }, [isProcessing, stage]);
 
   // Parse footnotes from text and return main content + footnotes map
-  // Supports [^N], [N], and ↑ formats
+  // Supports [^N], [N], and ↑ formats, including [N]: format from DOCX
   const parseFootnotes = useCallback((text: string): { mainText: string; footnotes: Map<number, string> } => {
     const footnotes = new Map<number, string>();
 
-    // Find separator --- or look for lines with ↑ at the end
+    // Find separator --- or look for [N]: format at end
     let separatorIdx = text.indexOf('\n---\n');
     let mainText = text;
     let footnotesSection = '';
@@ -112,22 +113,29 @@ const ScannerView: React.FC<ScannerViewProps> = ({
       mainText = text.slice(0, separatorIdx);
       footnotesSection = text.slice(separatorIdx + 5);
     } else {
-      // Look for footnotes with ↑ symbol at the end
-      const lines = text.split('\n');
-      let footnoteStartIdx = lines.length;
+      // Check for [^N]: or [N]: format on new line
+      const defMatch = text.match(/\n\[\^?(\d+)\]:/);
+      if (defMatch && defMatch.index !== undefined) {
+        mainText = text.slice(0, defMatch.index);
+        footnotesSection = text.slice(defMatch.index);
+      } else {
+        // Look for footnotes with ↑ symbol at the end
+        const lines = text.split('\n');
+        let footnoteStartIdx = lines.length;
 
-      for (let i = lines.length - 1; i >= 0; i--) {
-        const line = lines[i].trim();
-        if (line.includes('↑') || /^\d+[\.\)]\s/.test(line) || /^\[\^?\d+\]/.test(line)) {
-          footnoteStartIdx = i;
-        } else if (line.length > 0) {
-          break;
+        for (let i = lines.length - 1; i >= 0; i--) {
+          const line = lines[i].trim();
+          if (line.includes('↑') || /^\d+[.)]\s/.test(line) || /^\[\^?\d+\]/.test(line)) {
+            footnoteStartIdx = i;
+          } else if (line.length > 0) {
+            break;
+          }
         }
-      }
 
-      if (footnoteStartIdx < lines.length) {
-        mainText = lines.slice(0, footnoteStartIdx).join('\n');
-        footnotesSection = lines.slice(footnoteStartIdx).join('\n');
+        if (footnoteStartIdx < lines.length) {
+          mainText = lines.slice(0, footnoteStartIdx).join('\n');
+          footnotesSection = lines.slice(footnoteStartIdx).join('\n');
+        }
       }
     }
 
@@ -135,7 +143,7 @@ const ScannerView: React.FC<ScannerViewProps> = ({
       return { mainText, footnotes };
     }
 
-    // Parse footnote definitions: [^N]: content or [N]: content
+    // Parse footnote definitions: [^N]: content or [N]: content - handle multi-line
     const lines = footnotesSection.split('\n');
     let currentFootnoteNum: number | null = null;
     let currentContent: string[] = [];
@@ -144,18 +152,18 @@ const ScannerView: React.FC<ScannerViewProps> = ({
       // Match both [^N]: and [N]: formats
       const defMatch = line.match(/^\[\^?(\d+)\]:\s*(.*)$/);
       if (defMatch) {
-        if (currentFootnoteNum !== null) {
-          footnotes.set(currentFootnoteNum, currentContent.join('\n').trim());
+        if (currentFootnoteNum !== null && currentContent.length > 0) {
+          footnotes.set(currentFootnoteNum, currentContent.join(' ').trim());
         }
         currentFootnoteNum = parseInt(defMatch[1], 10);
-        currentContent = [defMatch[2]];
-      } else if (currentFootnoteNum !== null) {
-        currentContent.push(line);
+        currentContent = defMatch[2].trim() ? [defMatch[2].trim()] : [];
+      } else if (currentFootnoteNum !== null && line.trim()) {
+        currentContent.push(line.trim());
       }
     }
 
-    if (currentFootnoteNum !== null) {
-      footnotes.set(currentFootnoteNum, currentContent.join('\n').trim());
+    if (currentFootnoteNum !== null && currentContent.length > 0) {
+      footnotes.set(currentFootnoteNum, currentContent.join(' ').trim());
     }
 
     // If no footnotes found with [^N]: format, try ↑ format
@@ -168,7 +176,7 @@ const ScannerView: React.FC<ScannerViewProps> = ({
         // Remove ↑ symbol
         content = content.replace(/↑\s*$/, '').trim();
         // Remove leading number if present
-        content = content.replace(/^\d+[\.\)]\s*/, '').trim();
+        content = content.replace(/^\d+[.)]\s*/, '').trim();
 
         if (content) {
           footnotes.set(footnoteNum, content);
@@ -409,7 +417,56 @@ const ScannerView: React.FC<ScannerViewProps> = ({
     return { combinedText, chunkOffsets };
   }, [chunks]);
 
-  // Calculate global positions for all mistakes
+  // Constants for pagination
+  const WORDS_PER_PAGE = 600;
+
+  // Split text into pages by word count (~600 words per page)
+  // Returns pages with their start/end character positions
+  const pagesData = useMemo(() => {
+    const text = fullTextData.combinedText;
+    if (!text) return { pages: [], pageOffsets: [] };
+
+    const paragraphs = text.split('\n');
+    const pages: string[] = [];
+    const pageOffsets: { start: number; end: number }[] = [];
+
+    let currentPage: string[] = [];
+    let currentWordCount = 0;
+    let pageStartChar = 0;
+    let currentCharPos = 0;
+
+    for (let i = 0; i < paragraphs.length; i++) {
+      const para = paragraphs[i];
+      const paraWords = para.trim().split(/\s+/).filter(w => w.length > 0).length;
+      // Include newline character except for last paragraph
+      const paraLengthWithNewline = para.length + (i < paragraphs.length - 1 ? 1 : 0);
+
+      // Check if we need to start a new page BEFORE adding this paragraph
+      if (currentWordCount + paraWords > WORDS_PER_PAGE && currentPage.length > 0) {
+        pages.push(currentPage.join('\n'));
+        pageOffsets.push({ start: pageStartChar, end: currentCharPos });
+        currentPage = [];
+        currentWordCount = 0;
+        pageStartChar = currentCharPos;
+      }
+
+      currentPage.push(para);
+      currentWordCount += paraWords;
+      currentCharPos += paraLengthWithNewline;
+    }
+
+    // Don't forget the last page
+    if (currentPage.length > 0) {
+      pages.push(currentPage.join('\n'));
+      pageOffsets.push({ start: pageStartChar, end: text.length });
+    }
+
+    return { pages, pageOffsets };
+  }, [fullTextData.combinedText]);
+
+  const totalPages = pagesData.pages.length;
+
+  // Calculate global positions for all mistakes - must be defined before useEffects that use it
   const mistakesWithGlobalPositions = useMemo(() => {
     return allMistakes.map(mistake => {
       const chunkOffset = fullTextData.chunkOffsets.find(co => co.chunkId === mistake.chunkId);
@@ -422,6 +479,27 @@ const ScannerView: React.FC<ScannerViewProps> = ({
       };
     });
   }, [allMistakes, fullTextData]);
+
+  // Reset page when chunks change
+  useEffect(() => {
+    setCurrentPage(0);
+  }, [chunks]);
+
+  // Auto-navigate to page containing selected mistake (only when mistake selection changes)
+  useEffect(() => {
+    if (selectedMistake && pagesData.pageOffsets.length > 0) {
+      const mistakeWithPos = mistakesWithGlobalPositions.find(m => m.id === selectedMistake.id);
+      if (mistakeWithPos) {
+        const pageIdx = pagesData.pageOffsets.findIndex(po =>
+          mistakeWithPos.globalStart >= po.start && mistakeWithPos.globalStart < po.end
+        );
+        if (pageIdx !== -1) {
+          setCurrentPage(pageIdx);
+        }
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedMistake?.id]); // Only trigger when selected mistake ID changes
 
   // Navigate between mistakes (uses navigableMistakes which includes all statuses)
   const currentMistakeIndex = navigableMistakes.findIndex(m => m.id === selectedMistakeId);
@@ -522,12 +600,23 @@ const ScannerView: React.FC<ScannerViewProps> = ({
 
   // Render text with ALL mistakes highlighted, selected one more prominent
   // For approved mistakes, show the corrected text instead of original
+  // Now supports pagination - only renders current page
   const renderFullTextWithAllHighlights = () => {
-    const text = fullTextData.combinedText;
-    if (!text) return null;
+    if (pagesData.pages.length === 0) return null;
+
+    const pageText = pagesData.pages[currentPage] || '';
+    const pageOffset = pagesData.pageOffsets[currentPage];
+    if (!pageOffset) return null;
+
+    const fullText = fullTextData.combinedText;
+
+    // Get mistakes that are on this page
+    const pageMistakes = mistakesWithGlobalPositions.filter(m =>
+      m.globalStart >= pageOffset.start && m.globalStart < pageOffset.end
+    );
 
     // Sort mistakes by global position
-    const sortedMistakes = [...mistakesWithGlobalPositions].sort((a, b) => a.globalStart - b.globalStart);
+    const sortedMistakes = [...pageMistakes].sort((a, b) => a.globalStart - b.globalStart);
 
     // Filter out overlapping mistakes (keep earlier ones)
     const nonOverlappingMistakes = sortedMistakes.reduce((acc, mistake) => {
@@ -539,13 +628,13 @@ const ScannerView: React.FC<ScannerViewProps> = ({
     }, [] as typeof sortedMistakes);
 
     const elements: React.ReactNode[] = [];
-    let lastEnd = 0;
+    let lastEnd = pageOffset.start;
 
     nonOverlappingMistakes.forEach((mistake, idx) => {
       // Add text before this mistake
       if (mistake.globalStart > lastEnd) {
         elements.push(
-          <span key={`text-${idx}`} style={{ whiteSpace: 'pre-wrap' }}>{renderInlineText(text.slice(lastEnd, mistake.globalStart), `pre-${idx}`)}</span>
+          <span key={`text-${idx}`} style={{ whiteSpace: 'pre-wrap' }}>{renderInlineText(fullText.slice(lastEnd, mistake.globalStart), `pre-${idx}`)}</span>
         );
       }
 
@@ -558,7 +647,7 @@ const ScannerView: React.FC<ScannerViewProps> = ({
       // Choose which text to display
       const displayText = isApproved
         ? mistake.suggestedFix  // Show corrected text for approved
-        : text.slice(mistake.globalStart, mistake.globalEnd);  // Original for pending/rejected
+        : fullText.slice(mistake.globalStart, mistake.globalEnd);  // Original for pending/rejected
 
       let highlightClass = '';
       if (isSelected) {
@@ -600,7 +689,7 @@ const ScannerView: React.FC<ScannerViewProps> = ({
           )}
           {!isSelected && isApproved && (
             <span className="absolute -top-8 left-0 bg-gray-900 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10 pointer-events-none">
-              było: {renderInlineText(text.slice(mistake.globalStart, mistake.globalEnd), `was-${mistake.id}`)}
+              było: {renderInlineText(fullText.slice(mistake.globalStart, mistake.globalEnd), `was-${mistake.id}`)}
             </span>
           )}
         </mark>
@@ -609,9 +698,10 @@ const ScannerView: React.FC<ScannerViewProps> = ({
       lastEnd = mistake.globalEnd;
     });
 
-    // Add remaining text
-    if (lastEnd < text.length) {
-      elements.push(<span key="text-end" style={{ whiteSpace: 'pre-wrap' }}>{renderInlineText(text.slice(lastEnd), 'end')}</span>);
+    // Add remaining text on this page
+    const pageEndPos = Math.min(pageOffset.end, fullText.length);
+    if (lastEnd < pageEndPos) {
+      elements.push(<span key="text-end" style={{ whiteSpace: 'pre-wrap' }}>{renderInlineText(fullText.slice(lastEnd, pageEndPos), 'end')}</span>);
     }
 
     return <span style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{elements}</span>;
@@ -927,8 +1017,15 @@ const ScannerView: React.FC<ScannerViewProps> = ({
         <div ref={textDisplayRef} className="flex-1 overflow-y-auto p-6 bg-gray-100 dark:bg-gray-950">
           {chunks.length > 0 ? (
             <div className="max-w-3xl mx-auto bg-white dark:bg-gray-900 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-800">
-              <div className="text-xs text-gray-400 mb-4">
-                Pełny tekst • {allMistakes.length} {allMistakes.length === 1 ? 'błąd' : allMistakes.length < 5 ? 'błędy' : 'błędów'}
+              <div className="flex items-center justify-between text-xs text-gray-400 mb-4">
+                <span>
+                  Pełny tekst • {allMistakes.length} {allMistakes.length === 1 ? 'błąd' : allMistakes.length < 5 ? 'błędy' : 'błędów'}
+                </span>
+                {totalPages > 1 && (
+                  <span className="text-brand-500 font-medium">
+                    Strona {currentPage + 1} z {totalPages}
+                  </span>
+                )}
               </div>
               <div
                 className="font-serif text-gray-800 dark:text-gray-200 leading-relaxed"
@@ -936,6 +1033,85 @@ const ScannerView: React.FC<ScannerViewProps> = ({
               >
                 {renderFullTextWithAllHighlights()}
               </div>
+
+              {/* Footnotes section for current page */}
+              {(() => {
+                // Parse footnotes from full text
+                const { footnotes } = parseFootnotes(fullTextData.combinedText);
+                if (footnotes.size === 0) return null;
+
+                // Get current page text to find which footnotes are referenced
+                const pageText = pagesData.pages[currentPage] || '';
+                const pageFootnoteRefs = new Set<number>();
+                const matches = pageText.matchAll(/\[\^?(\d+)\]/g);
+                for (const match of matches) {
+                  pageFootnoteRefs.add(parseInt(match[1], 10));
+                }
+
+                // Filter footnotes to only show those on current page
+                const pageFootnotes = new Map<number, string>();
+                footnotes.forEach((content, num) => {
+                  if (pageFootnoteRefs.has(num)) {
+                    pageFootnotes.set(num, content);
+                  }
+                });
+
+                if (pageFootnotes.size === 0) return null;
+
+                return (
+                  <div className="mt-6 pt-4 border-t-2 border-gray-200 dark:border-gray-700">
+                    <div className="flex items-center gap-2 mb-3">
+                      <div className="flex-1 h-px bg-gradient-to-r from-brand-300 to-transparent dark:from-brand-700"></div>
+                      <span className="text-[10px] font-bold text-brand-600 dark:text-brand-400 uppercase tracking-widest px-2">
+                        Przypisy
+                      </span>
+                      <div className="flex-1 h-px bg-gradient-to-l from-brand-300 to-transparent dark:from-brand-700"></div>
+                    </div>
+                    <div className="space-y-2 bg-gray-50 dark:bg-gray-800/50 rounded-lg p-3">
+                      {Array.from(pageFootnotes.entries())
+                        .sort(([a], [b]) => a - b)
+                        .map(([num, content]) => (
+                          <div
+                            key={`page-fn-${num}`}
+                            className="flex gap-2 text-sm text-gray-600 dark:text-gray-400"
+                          >
+                            <span className="inline-flex items-center justify-center min-w-[1.5em] h-[1.5em] text-[0.7em] font-bold text-white bg-brand-500 dark:bg-brand-600 rounded-full flex-shrink-0 mt-0.5">
+                              {num}
+                            </span>
+                            <span className="flex-1 leading-relaxed">
+                              {renderInlineText(content, `page-fn-${num}`)}
+                            </span>
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Pagination controls */}
+              {totalPages > 1 && (
+                <div className="mt-6 pt-4 border-t border-gray-100 dark:border-gray-700 flex items-center justify-between">
+                  <button
+                    onClick={() => setCurrentPage(p => Math.max(0, p - 1))}
+                    disabled={currentPage === 0}
+                    className="flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-gray-500 dark:text-gray-400 hover:text-brand-600 dark:hover:text-brand-400 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                  >
+                    <ChevronLeft size={16} />
+                    Poprzednia strona
+                  </button>
+                  <span className="text-sm font-medium text-gray-400">
+                    Strona {currentPage + 1} z {totalPages}
+                  </span>
+                  <button
+                    onClick={() => setCurrentPage(p => Math.min(totalPages - 1, p + 1))}
+                    disabled={currentPage === totalPages - 1}
+                    className="flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-gray-500 dark:text-gray-400 hover:text-brand-600 dark:hover:text-brand-400 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                  >
+                    Następna strona
+                    <ChevronRight size={16} />
+                  </button>
+                </div>
+              )}
             </div>
           ) : (
             <div className="h-full flex items-center justify-center text-gray-400">

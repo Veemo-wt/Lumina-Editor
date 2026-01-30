@@ -946,24 +946,53 @@ export const extractTextFromIdml = async (file: File): Promise<string> => {
 /**
  * Helper to process ArrayBuffer for Docx
  * Preserves paragraph structure (single newlines are real paragraphs in DOCX)
+ * Extracts footnotes with [N] markers in text and footnote content at the end
  *
  * @param buffer - ArrayBuffer of the DOCX file
  * @param preserveFormatting - If true, bold/italic will be preserved using markers: **bold** and *italic*
  */
 const parseDocxBuffer = async (buffer: ArrayBuffer, preserveFormatting: boolean = false): Promise<string> => {
-  if (!preserveFormatting) {
-    // Original behavior - extract raw text only
-    const result = await mammoth.extractRawText({ arrayBuffer: buffer });
-    return cleanupWhitespaceBasic(result.value);
-  }
-
-  // New behavior - preserve bold and italic using markers
+  // Use convertToHtml to extract footnotes properly
   const result = await mammoth.convertToHtml({ arrayBuffer: buffer });
   const html = result.value;
 
   // Parse HTML and convert to text with formatting markers
   const parser = new DOMParser();
   const doc = parser.parseFromString(html, 'text/html');
+
+  const footnotes: Map<string, string> = new Map();
+  let footnoteCounter = 1;
+  const footnoteIdMap: Map<string, number> = new Map();
+
+  // First pass: collect all footnotes
+  const footnoteElements = doc.querySelectorAll('li[id^="footnote-"]');
+  footnoteElements.forEach((fn) => {
+    const id = fn.id.replace('footnote-', '');
+    // Get footnote content, excluding the back reference link
+    let content = '';
+    fn.childNodes.forEach(node => {
+      if (node.nodeType === Node.TEXT_NODE) {
+        content += node.textContent;
+      } else if (node.nodeType === Node.ELEMENT_NODE) {
+        const elem = node as Element;
+        if (!elem.classList?.contains('footnote-backref') && elem.tagName !== 'A') {
+          content += elem.textContent || '';
+        }
+      }
+    });
+    content = content.replace(/\s*↩\s*$/, '').trim(); // Remove back arrow if present
+    if (content) {
+      footnoteIdMap.set(id, footnoteCounter);
+      footnotes.set(String(footnoteCounter), content);
+      footnoteCounter++;
+    }
+  });
+
+  // Remove footnote list from document (we'll add it formatted at the end)
+  const footnotesOl = doc.querySelector('ol');
+  if (footnotesOl && footnotesOl.querySelector('li[id^="footnote-"]')) {
+    footnotesOl.remove();
+  }
 
   const extractTextWithFormatting = (node: Node): string => {
     let text = '';
@@ -976,25 +1005,50 @@ const parseDocxBuffer = async (buffer: ArrayBuffer, preserveFormatting: boolean 
         const tagName = elem.tagName.toLowerCase();
 
         if (tagName === 'p') {
-          // Paragraph - add content and newline
           text += extractTextWithFormatting(elem) + '\n';
         } else if (tagName === 'br') {
-          // Line break
           text += '\n';
         } else if (tagName === 'strong' || tagName === 'b') {
-          // Bold - wrap with **
-          const innerText = extractTextWithFormatting(elem);
-          if (innerText.trim()) {
-            text += `**${innerText}**`;
+          if (preserveFormatting) {
+            const innerText = extractTextWithFormatting(elem);
+            if (innerText.trim()) {
+              text += `**${innerText}**`;
+            }
+          } else {
+            text += extractTextWithFormatting(elem);
           }
         } else if (tagName === 'em' || tagName === 'i') {
-          // Italic - wrap with *
-          const innerText = extractTextWithFormatting(elem);
-          if (innerText.trim()) {
-            text += `*${innerText}*`;
+          if (preserveFormatting) {
+            const innerText = extractTextWithFormatting(elem);
+            if (innerText.trim()) {
+              text += `*${innerText}*`;
+            }
+          } else {
+            text += extractTextWithFormatting(elem);
+          }
+        } else if (tagName === 'a' && elem.getAttribute('href')?.startsWith('#footnote-')) {
+          // Footnote reference
+          const footnoteId = elem.getAttribute('href')?.replace('#footnote-', '') || '';
+          const footnoteNum = footnoteIdMap.get(footnoteId);
+          if (footnoteNum) {
+            text += `[${footnoteNum}]`;
+          }
+        } else if (tagName === 'sup' && elem.querySelector('a[href^="#footnote-"]')) {
+          // Footnote reference wrapped in sup
+          const link = elem.querySelector('a[href^="#footnote-"]');
+          if (link) {
+            const footnoteId = link.getAttribute('href')?.replace('#footnote-', '') || '';
+            const footnoteNum = footnoteIdMap.get(footnoteId);
+            if (footnoteNum) {
+              text += `[${footnoteNum}]`;
+            }
+          }
+        } else if (tagName === 'ol' || tagName === 'ul') {
+          // Skip footnotes list (already processed)
+          if (!elem.querySelector('li[id^="footnote-"]')) {
+            text += extractTextWithFormatting(elem);
           }
         } else {
-          // Other elements - just extract text recursively
           text += extractTextWithFormatting(elem);
         }
       }
@@ -1003,8 +1057,20 @@ const parseDocxBuffer = async (buffer: ArrayBuffer, preserveFormatting: boolean 
     return text;
   };
 
-  const extractedText = extractTextWithFormatting(doc.body);
-  return cleanupWhitespaceBasic(extractedText);
+  let extractedText = extractTextWithFormatting(doc.body);
+  extractedText = cleanupWhitespaceBasic(extractedText);
+
+  // Append footnotes at the end if any exist
+  if (footnotes.size > 0) {
+    extractedText += '\n\n---\n';
+    const sortedFootnotes = Array.from(footnotes.entries())
+      .sort((a, b) => parseInt(a[0]) - parseInt(b[0]));
+    for (const [num, content] of sortedFootnotes) {
+      extractedText += `[${num}]: ${content}\n`;
+    }
+  }
+
+  return extractedText;
 };
 
 export const extractTextFromDocx = async (file: File, preserveFormatting: boolean = false): Promise<string> => {
@@ -1198,27 +1264,55 @@ export const generateDocxBlob = async (text: string, preserveFormatting: boolean
 
   // Parse footnote definitions from the section
   if (footnotesSection.trim()) {
-    // Try format: [^N]: content or [N]: content
-    const defRegex1 = /\[\^?(\d+)\]:\s*([^\[\n]+)/g;
-    let match;
-    while ((match = defRegex1.exec(footnotesSection)) !== null) {
-      const footnoteId = parseInt(match[1], 10);
-      const footnoteContent = match[2].trim();
-      footnotes[footnoteId] = {
-        children: [new Paragraph({
-          children: parseFormattedRuns(footnoteContent, preserveFormatting),
-          spacing: { after: 60 }
-        })]
-      };
+    // Try format: [^N]: content or [N]: content - parse line by line for multi-line support
+    const lines = footnotesSection.split('\n');
+    let currentNum: number | null = null;
+    let currentContent: string[] = [];
+
+    for (const line of lines) {
+      const defMatch = line.match(/^\[\^?(\d+)\]:\s*(.*)$/);
+      if (defMatch) {
+        // Save previous footnote if exists
+        if (currentNum !== null && currentContent.length > 0) {
+          const content = currentContent.join(' ').replace(/↑/g, '').trim();
+          if (content) {
+            footnotes[currentNum] = {
+              children: [new Paragraph({
+                children: parseFormattedRuns(content, preserveFormatting),
+                spacing: { after: 60 }
+              })]
+            };
+          }
+        }
+        // Start new footnote
+        currentNum = parseInt(defMatch[1], 10);
+        const lineContent = defMatch[2].replace(/↑/g, '').trim();
+        currentContent = lineContent ? [lineContent] : [];
+      } else if (currentNum !== null && line.trim()) {
+        // Continue previous footnote content
+        currentContent.push(line.replace(/↑/g, '').trim());
+      }
+    }
+    // Don't forget the last footnote
+    if (currentNum !== null && currentContent.length > 0) {
+      const content = currentContent.join(' ').replace(/↑/g, '').trim();
+      if (content) {
+        footnotes[currentNum] = {
+          children: [new Paragraph({
+            children: parseFormattedRuns(content, preserveFormatting),
+            spacing: { after: 60 }
+          })]
+        };
+      }
     }
 
-    // Try format: content ↑ - split by ↑ symbol
+    // Try format: content ↑ - split by ↑ symbol (legacy IDML style)
     if (Object.keys(footnotes).length === 0 && footnotesSection.includes('↑')) {
       const parts = footnotesSection.split('↑').map(p => p.trim()).filter(p => p.length > 0);
       let footnoteNum = 1;
 
       for (const part of parts) {
-        let content = part.replace(/^\d+[\.\)]\s*/, '').trim();
+        let content = part.replace(/^\d+[.)\]]\s*/, '').trim();
 
         if (content) {
           footnotes[footnoteNum] = {
@@ -1239,8 +1333,8 @@ export const generateDocxBlob = async (text: string, preserveFormatting: boolean
 
       for (const line of arrowLines) {
         let content = line.trim();
-        content = content.replace(/↑\s*$/, '').trim();
-        content = content.replace(/^\d+[\.\)]\s*/, '').trim();
+        content = content.replace(/↑/g, '').trim();
+        content = content.replace(/^\d+[.)\]]\s*/, '').trim();
 
         if (content) {
           footnotes[footnoteNum] = {
