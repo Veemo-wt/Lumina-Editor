@@ -1,7 +1,7 @@
 import { ChunkData, GlossaryItem, CharacterTrait, RawFile, RagEntry } from '../types';
 import * as pdfjsLib from 'pdfjs-dist';
 import mammoth from 'mammoth';
-import { Document, Packer, Paragraph, TextRun } from 'docx';
+import { Document, Packer, Paragraph, TextRun, FootnoteReferenceRun } from 'docx';
 import JSZip from 'jszip';
 
 // Initialize PDF.js worker
@@ -1058,105 +1058,216 @@ export const extractTextFromZip = async (file: File, removeRunningHeads: boolean
 };
 
 export const generateDocxBlob = async (text: string, preserveFormatting: boolean = false): Promise<Blob> => {
-  if (!preserveFormatting) {
-    // Original behavior - plain text only
-    const paragraphs = text.split('\n').map(line =>
-      new Paragraph({
-        children: [new TextRun(line)],
-        spacing: { after: 120 }
-      })
-    );
+  // Parse footnotes from text
+  // Supported formats:
+  // - References: [^N] or [N] in text
+  // - Definitions: [^N]: content OR numbered lines after separator (---, or lines with ↑)
+  const footnotes: Record<number, { children: Paragraph[] }> = {};
+  let mainText = text;
 
-    const doc = new Document({
-      sections: [{
-        properties: {},
-        children: paragraphs,
-      }],
-    });
+  // Try to find footnote section - multiple formats supported
+  let footnotesSection = '';
 
-    return await Packer.toBlob(doc);
-  }
+  // Check for --- separator first
+  const separatorIndex = text.indexOf('\n---\n');
+  if (separatorIndex !== -1) {
+    mainText = text.slice(0, separatorIndex);
+    footnotesSection = text.slice(separatorIndex + 5);
+  } else {
+    // Look for footnotes with ↑ symbol - can be in same line or separate lines
+    const arrowCount = (text.match(/↑/g) || []).length;
 
-  // New behavior - parse formatting markers and create styled runs
-  const paragraphs = text.split('\n').map(line => {
-    const children: TextRun[] = [];
+    if (arrowCount >= 1) {
+      const firstArrowIdx = text.indexOf('↑');
+      if (firstArrowIdx > 0) {
+        let foundSplit = -1;
 
-    // Regex to find **bold** and *italic* markers
-    // Bold: **text** (non-greedy)
-    // Italic: *text* (non-greedy, but not **)
-    // We need to handle nesting and overlaps carefully
+        for (let i = firstArrowIdx - 1; i >= 0; i--) {
+          const char = text[i];
+          if (char === '.' || char === '!' || char === '?') {
+            const afterSentence = text.slice(i + 1, firstArrowIdx).trim();
+            if (afterSentence.length > 0 && afterSentence.length < 200) {
+              foundSplit = i + 1;
+              break;
+            }
+          }
+          if (i > 0 && text[i] === '\n' && text[i-1] === '\n') {
+            foundSplit = i + 1;
+            break;
+          }
+        }
 
-    let remaining = line;
-
-    while (remaining.length > 0) {
-      // Look for the first marker
-      const boldMatch = remaining.match(/^\*\*(.+?)\*\*/);
-      const italicMatch = remaining.match(/^\*([^*]+?)\*/);
-      const boldIndex = remaining.indexOf('**');
-      const italicIndex = remaining.indexOf('*');
-
-      // Find plain text before any marker
-      let nextMarkerIndex = remaining.length;
-
-      if (boldIndex !== -1) {
-        nextMarkerIndex = Math.min(nextMarkerIndex, boldIndex);
-      }
-      if (italicIndex !== -1 && (boldIndex === -1 || italicIndex < boldIndex || (italicIndex === boldIndex + 1))) {
-        // Only consider single * if it's not the start of **
-        if (!(italicIndex === boldIndex)) {
-          nextMarkerIndex = Math.min(nextMarkerIndex, italicIndex);
+        if (foundSplit > 0) {
+          mainText = text.slice(0, foundSplit).trim();
+          footnotesSection = text.slice(foundSplit).trim();
         }
       }
-
-      // If there's plain text before the marker, add it
-      if (nextMarkerIndex > 0 && (boldMatch === null || boldIndex > 0) && (italicMatch === null || italicIndex > 0)) {
-        const plainText = remaining.slice(0, nextMarkerIndex);
-        if (plainText) {
-          children.push(new TextRun(plainText));
-        }
-        remaining = remaining.slice(nextMarkerIndex);
-        continue;
-      }
-
-      // Check for bold first (** takes precedence over *)
-      if (boldMatch && remaining.startsWith('**')) {
-        children.push(new TextRun({
-          text: boldMatch[1],
-          bold: true
-        }));
-        remaining = remaining.slice(boldMatch[0].length);
-        continue;
-      }
-
-      // Check for italic
-      if (italicMatch && remaining.startsWith('*') && !remaining.startsWith('**')) {
-        children.push(new TextRun({
-          text: italicMatch[1],
-          italics: true
-        }));
-        remaining = remaining.slice(italicMatch[0].length);
-        continue;
-      }
-
-      // No more markers found - add rest as plain text
-      if (remaining) {
-        children.push(new TextRun(remaining));
-      }
-      break;
     }
 
-    // If no children were created, add empty run to avoid empty paragraph
+    // Fallback: look for lines with ↑ at end
+    if (!footnotesSection) {
+      const lines = text.split('\n');
+      let footnoteStartIdx = lines.length;
+
+      for (let i = lines.length - 1; i >= 0; i--) {
+        const line = lines[i].trim();
+        if (line.includes('↑') || /^\d+[\.\)]\s/.test(line) || /^\[\^?\d+\]/.test(line)) {
+          footnoteStartIdx = i;
+        } else if (line.length > 0) {
+          break;
+        }
+      }
+
+      if (footnoteStartIdx < lines.length) {
+        mainText = lines.slice(0, footnoteStartIdx).join('\n');
+        footnotesSection = lines.slice(footnoteStartIdx).join('\n');
+      }
+    }
+  }
+
+  // Helper function to parse formatted runs (bold, italic, footnote refs)
+  // Supports both [^N] and [N] formats
+  function parseFormattedRuns(lineText: string, withFormatting: boolean): (TextRun | FootnoteReferenceRun)[] {
+    const children: (TextRun | FootnoteReferenceRun)[] = [];
+    let remaining = lineText;
+
+    while (remaining.length > 0) {
+      // Look for footnote reference [^N] or [N]
+      const footnoteRefMatch = remaining.match(/^\[\^?(\d+)\]/);
+      if (footnoteRefMatch) {
+        const footnoteId = parseInt(footnoteRefMatch[1], 10);
+        // Only add footnote reference if we have a definition for it
+        if (footnotes[footnoteId]) {
+          children.push(new FootnoteReferenceRun(footnoteId));
+        } else {
+          // No definition, just render as text
+          children.push(new TextRun(footnoteRefMatch[0]));
+        }
+        remaining = remaining.slice(footnoteRefMatch[0].length);
+        continue;
+      }
+
+      if (withFormatting) {
+        // Look for **bold**
+        const boldMatch = remaining.match(/^\*\*(.+?)\*\*/);
+        if (boldMatch) {
+          children.push(new TextRun({ text: boldMatch[1], bold: true }));
+          remaining = remaining.slice(boldMatch[0].length);
+          continue;
+        }
+
+        // Look for *italic* (but not **)
+        const italicMatch = remaining.match(/^\*([^*]+?)\*/);
+        if (italicMatch && !remaining.startsWith('**')) {
+          children.push(new TextRun({ text: italicMatch[1], italics: true }));
+          remaining = remaining.slice(italicMatch[0].length);
+          continue;
+        }
+      }
+
+      // Find next marker position
+      let nextMarkerIdx = remaining.length;
+
+      // Both [^N] and [N] formats
+      const footnoteRefIdx = remaining.search(/\[\^?\d+\]/);
+      if (footnoteRefIdx > 0) nextMarkerIdx = Math.min(nextMarkerIdx, footnoteRefIdx);
+
+      if (withFormatting) {
+        const boldIdx = remaining.indexOf('**');
+        if (boldIdx > 0) nextMarkerIdx = Math.min(nextMarkerIdx, boldIdx);
+
+        const italicIdx = remaining.search(/(?<!\*)\*(?!\*)/);
+        if (italicIdx > 0) nextMarkerIdx = Math.min(nextMarkerIdx, italicIdx);
+      }
+
+      if (nextMarkerIdx > 0) {
+        children.push(new TextRun(remaining.slice(0, nextMarkerIdx)));
+        remaining = remaining.slice(nextMarkerIdx);
+      } else if (remaining.length > 0) {
+        children.push(new TextRun(remaining));
+        break;
+      }
+    }
+
     if (children.length === 0) {
       children.push(new TextRun(''));
     }
 
+    return children;
+  }
+
+  // Parse footnote definitions from the section
+  if (footnotesSection.trim()) {
+    // Try format: [^N]: content or [N]: content
+    const defRegex1 = /\[\^?(\d+)\]:\s*([^\[\n]+)/g;
+    let match;
+    while ((match = defRegex1.exec(footnotesSection)) !== null) {
+      const footnoteId = parseInt(match[1], 10);
+      const footnoteContent = match[2].trim();
+      footnotes[footnoteId] = {
+        children: [new Paragraph({
+          children: parseFormattedRuns(footnoteContent, preserveFormatting),
+          spacing: { after: 60 }
+        })]
+      };
+    }
+
+    // Try format: content ↑ - split by ↑ symbol
+    if (Object.keys(footnotes).length === 0 && footnotesSection.includes('↑')) {
+      const parts = footnotesSection.split('↑').map(p => p.trim()).filter(p => p.length > 0);
+      let footnoteNum = 1;
+
+      for (const part of parts) {
+        let content = part.replace(/^\d+[\.\)]\s*/, '').trim();
+
+        if (content) {
+          footnotes[footnoteNum] = {
+            children: [new Paragraph({
+              children: parseFormattedRuns(content, preserveFormatting),
+              spacing: { after: 60 }
+            })]
+          };
+          footnoteNum++;
+        }
+      }
+    }
+
+    // Fallback: try line by line
+    if (Object.keys(footnotes).length === 0) {
+      const arrowLines = footnotesSection.split('\n').filter(l => l.trim());
+      let footnoteNum = 1;
+
+      for (const line of arrowLines) {
+        let content = line.trim();
+        content = content.replace(/↑\s*$/, '').trim();
+        content = content.replace(/^\d+[\.\)]\s*/, '').trim();
+
+        if (content) {
+          footnotes[footnoteNum] = {
+            children: [new Paragraph({
+              children: parseFormattedRuns(content, preserveFormatting),
+              spacing: { after: 60 }
+            })]
+          };
+          footnoteNum++;
+        }
+      }
+    }
+  }
+
+  // Create paragraphs from main text
+  const paragraphs = mainText.split('\n').map(line => {
     return new Paragraph({
-      children,
+      children: parseFormattedRuns(line, preserveFormatting),
       spacing: { after: 120 }
     });
   });
 
+  // Create document with footnotes
+  const hasFootnotes = Object.keys(footnotes).length > 0;
+
   const doc = new Document({
+    footnotes: hasFootnotes ? footnotes : undefined,
     sections: [{
       properties: {},
       children: paragraphs,

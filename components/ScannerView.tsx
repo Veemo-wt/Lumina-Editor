@@ -98,116 +98,225 @@ const ScannerView: React.FC<ScannerViewProps> = ({
     return () => clearInterval(interval);
   }, [isProcessing, stage]);
 
-  // Helper to render text with formatting (**bold**, *italic*, and footnotes) as actual styled text
-  const renderFormattedText = (text: string): React.ReactNode[] => {
+  // Parse footnotes from text and return main content + footnotes map
+  // Supports [^N], [N], and ↑ formats
+  const parseFootnotes = useCallback((text: string): { mainText: string; footnotes: Map<number, string> } => {
+    const footnotes = new Map<number, string>();
+
+    // Find separator --- or look for lines with ↑ at the end
+    let separatorIdx = text.indexOf('\n---\n');
+    let mainText = text;
+    let footnotesSection = '';
+
+    if (separatorIdx !== -1) {
+      mainText = text.slice(0, separatorIdx);
+      footnotesSection = text.slice(separatorIdx + 5);
+    } else {
+      // Look for footnotes with ↑ symbol at the end
+      const lines = text.split('\n');
+      let footnoteStartIdx = lines.length;
+
+      for (let i = lines.length - 1; i >= 0; i--) {
+        const line = lines[i].trim();
+        if (line.includes('↑') || /^\d+[\.\)]\s/.test(line) || /^\[\^?\d+\]/.test(line)) {
+          footnoteStartIdx = i;
+        } else if (line.length > 0) {
+          break;
+        }
+      }
+
+      if (footnoteStartIdx < lines.length) {
+        mainText = lines.slice(0, footnoteStartIdx).join('\n');
+        footnotesSection = lines.slice(footnoteStartIdx).join('\n');
+      }
+    }
+
+    if (!footnotesSection.trim()) {
+      return { mainText, footnotes };
+    }
+
+    // Parse footnote definitions: [^N]: content or [N]: content
+    const lines = footnotesSection.split('\n');
+    let currentFootnoteNum: number | null = null;
+    let currentContent: string[] = [];
+
+    for (const line of lines) {
+      // Match both [^N]: and [N]: formats
+      const defMatch = line.match(/^\[\^?(\d+)\]:\s*(.*)$/);
+      if (defMatch) {
+        if (currentFootnoteNum !== null) {
+          footnotes.set(currentFootnoteNum, currentContent.join('\n').trim());
+        }
+        currentFootnoteNum = parseInt(defMatch[1], 10);
+        currentContent = [defMatch[2]];
+      } else if (currentFootnoteNum !== null) {
+        currentContent.push(line);
+      }
+    }
+
+    if (currentFootnoteNum !== null) {
+      footnotes.set(currentFootnoteNum, currentContent.join('\n').trim());
+    }
+
+    // If no footnotes found with [^N]: format, try ↑ format
+    if (footnotes.size === 0) {
+      const arrowLines = footnotesSection.split('\n').filter(l => l.trim());
+      let footnoteNum = 1;
+
+      for (const line of arrowLines) {
+        let content = line.trim();
+        // Remove ↑ symbol
+        content = content.replace(/↑\s*$/, '').trim();
+        // Remove leading number if present
+        content = content.replace(/^\d+[\.\)]\s*/, '').trim();
+
+        if (content) {
+          footnotes.set(footnoteNum, content);
+          footnoteNum++;
+        }
+      }
+    }
+
+    return { mainText, footnotes };
+  }, []);
+
+  // Render inline text with formatting (bold, italic, footnote refs)
+  // Supports both [^N] and [N] formats
+  const renderInlineText = useCallback((text: string, keyPrefix: string = ''): React.ReactNode[] => {
     const result: React.ReactNode[] = [];
     let remaining = text;
     let keyCounter = 0;
 
+    const getKey = () => `${keyPrefix}-${keyCounter++}`;
+
     while (remaining.length > 0) {
-      // Look for footnote definition [^N]: content (must be at start of line or string)
-      const footnoteDefMatch = remaining.match(/^\[\^(\d+)\]:\s*/);
-      if (footnoteDefMatch) {
-        // This is a footnote definition - render as a styled footnote block
-        const footnoteNum = footnoteDefMatch[1];
-        remaining = remaining.slice(footnoteDefMatch[0].length);
-
-        // Find the rest of the footnote content (until next footnote def or end)
-        let footnoteContent = '';
-        const nextFootnoteIdx = remaining.search(/\n\[\^\d+\]:/);
-        if (nextFootnoteIdx !== -1) {
-          footnoteContent = remaining.slice(0, nextFootnoteIdx);
-          remaining = remaining.slice(nextFootnoteIdx + 1); // +1 to skip the newline
-        } else {
-          footnoteContent = remaining;
-          remaining = '';
-        }
-
-        result.push(
-          <span key={keyCounter++} className="block my-2 pl-4 border-l-2 border-gray-300 dark:border-gray-600 text-sm text-gray-600 dark:text-gray-400">
-            <sup className="text-xs font-bold text-brand-600 dark:text-brand-400 mr-1">[{footnoteNum}]</sup>
-            {renderFormattedText(footnoteContent.trim())}
-          </span>
-        );
-        continue;
-      }
-
-      // Look for footnote separator ---
-      if (remaining.startsWith('---')) {
-        result.push(
-          <span key={keyCounter++} className="block my-4 border-t border-gray-300 dark:border-gray-700 pt-2">
-            <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Przypisy</span>
-          </span>
-        );
-        remaining = remaining.slice(3).trimStart();
-        continue;
-      }
-
-      // Look for footnote reference [^N]
-      const footnoteRefMatch = remaining.match(/^\[\^(\d+)\]/);
+      // Look for footnote reference [^N] or [N]
+      const footnoteRefMatch = remaining.match(/^\[\^?(\d+)\]/);
       if (footnoteRefMatch) {
         const footnoteNum = footnoteRefMatch[1];
         result.push(
-          <sup key={keyCounter++} className="text-xs font-bold text-brand-600 dark:text-brand-400 cursor-help" title={`Zobacz przypis ${footnoteNum}`}>
-            [{footnoteNum}]
+          <sup
+            key={getKey()}
+            className="inline-flex items-center justify-center min-w-[1.2em] h-[1.2em] text-[0.65em] font-bold text-white bg-brand-500 dark:bg-brand-600 rounded-full mx-0.5 cursor-help hover:bg-brand-600 dark:hover:bg-brand-500 transition-colors"
+            title={`Przypis ${footnoteNum}`}
+          >
+            {footnoteNum}
           </sup>
         );
         remaining = remaining.slice(footnoteRefMatch[0].length);
         continue;
       }
 
-      // Look for **bold** first (takes precedence)
+      // Look for **bold**
       const boldMatch = remaining.match(/^\*\*(.+?)\*\*/);
       if (boldMatch) {
-        result.push(<strong key={keyCounter++} className="font-bold">{renderFormattedText(boldMatch[1])}</strong>);
+        result.push(
+          <strong key={getKey()} className="font-bold">
+            {renderInlineText(boldMatch[1], getKey())}
+          </strong>
+        );
         remaining = remaining.slice(boldMatch[0].length);
         continue;
       }
 
       // Look for *italic* (but not **)
-      const italicMatch = remaining.match(/^\*([^*]+?)\*/);
-      if (italicMatch && !remaining.startsWith('**')) {
-        result.push(<em key={keyCounter++} className="italic">{renderFormattedText(italicMatch[1])}</em>);
-        remaining = remaining.slice(italicMatch[0].length);
-        continue;
+      if (!remaining.startsWith('**')) {
+        const italicMatch = remaining.match(/^\*([^*]+?)\*/);
+        if (italicMatch) {
+          result.push(
+            <em key={getKey()} className="italic">
+              {renderInlineText(italicMatch[1], getKey())}
+            </em>
+          );
+          remaining = remaining.slice(italicMatch[0].length);
+          continue;
+        }
       }
 
       // Find next marker position
-      const nextBoldIdx = remaining.indexOf('**');
-      const nextItalicIdx = remaining.search(/(?<!\*)\*(?!\*)/);
-      const nextFootnoteRefIdx = remaining.search(/\[\^\d+\]/);
-      const nextFootnoteDefIdx = remaining.search(/\n\[\^\d+\]:/);
-      const nextSeparatorIdx = remaining.indexOf('---');
-
       let nextMarkerIdx = remaining.length;
-      if (nextBoldIdx !== -1) nextMarkerIdx = Math.min(nextMarkerIdx, nextBoldIdx);
-      if (nextItalicIdx !== -1) nextMarkerIdx = Math.min(nextMarkerIdx, nextItalicIdx);
-      if (nextFootnoteRefIdx !== -1) nextMarkerIdx = Math.min(nextMarkerIdx, nextFootnoteRefIdx);
-      if (nextFootnoteDefIdx !== -1) nextMarkerIdx = Math.min(nextMarkerIdx, nextFootnoteDefIdx + 1); // +1 to include the newline
-      if (nextSeparatorIdx !== -1) nextMarkerIdx = Math.min(nextMarkerIdx, nextSeparatorIdx);
 
-      if (nextMarkerIdx > 0) {
-        // Add plain text before the marker
-        result.push(remaining.slice(0, nextMarkerIdx));
+      // Both [^N] and [N] formats
+      const footnoteRefIdx = remaining.search(/\[\^?\d+\]/);
+      if (footnoteRefIdx > 0) nextMarkerIdx = Math.min(nextMarkerIdx, footnoteRefIdx);
+
+      const boldIdx = remaining.indexOf('**');
+      if (boldIdx > 0) nextMarkerIdx = Math.min(nextMarkerIdx, boldIdx);
+
+      const italicMatch = remaining.match(/[^*]\*[^*]/);
+      if (italicMatch && italicMatch.index !== undefined && italicMatch.index + 1 > 0) {
+        nextMarkerIdx = Math.min(nextMarkerIdx, italicMatch.index + 1);
+      }
+
+      if (nextMarkerIdx > 0 && nextMarkerIdx < remaining.length) {
+        result.push(<span key={getKey()}>{remaining.slice(0, nextMarkerIdx)}</span>);
         remaining = remaining.slice(nextMarkerIdx);
-      } else if (remaining.length > 0) {
-        // No more markers, add rest as plain text
-        result.push(remaining);
+      } else {
+        result.push(<span key={getKey()}>{remaining}</span>);
         break;
       }
     }
 
     return result;
-  };
+  }, []);
+
+  // Render text with footnotes displayed at the bottom
+  const renderFormattedText = useCallback((text: string, id: string = 'text'): React.ReactNode => {
+    const { mainText, footnotes } = parseFootnotes(text);
+    const paragraphs = mainText.split('\n').filter(p => p.trim());
+
+    return (
+      <div className="space-y-2">
+        {/* Main content */}
+        <div className="space-y-2">
+          {paragraphs.map((para, idx) => (
+            <p key={`${id}-p-${idx}`} className="leading-relaxed">
+              {renderInlineText(para, `${id}-p-${idx}`)}
+            </p>
+          ))}
+        </div>
+
+        {/* Footnotes section */}
+        {footnotes.size > 0 && (
+          <div className="mt-4 pt-3 border-t-2 border-gray-200 dark:border-gray-700">
+            <div className="flex items-center gap-2 mb-2">
+              <div className="flex-1 h-px bg-gradient-to-r from-brand-300 to-transparent dark:from-brand-700"></div>
+              <span className="text-[10px] font-bold text-brand-600 dark:text-brand-400 uppercase tracking-widest px-2">
+                Przypisy
+              </span>
+              <div className="flex-1 h-px bg-gradient-to-l from-brand-300 to-transparent dark:from-brand-700"></div>
+            </div>
+            <div className="space-y-2 bg-gray-50 dark:bg-gray-800/50 rounded-lg p-3">
+              {Array.from(footnotes.entries())
+                .sort(([a], [b]) => a - b)
+                .map(([num, content]) => (
+                  <div
+                    key={`${id}-fn-${num}`}
+                    className="flex gap-2 text-sm text-gray-600 dark:text-gray-400"
+                  >
+                    <span className="inline-flex items-center justify-center min-w-[1.5em] h-[1.5em] text-[0.7em] font-bold text-white bg-brand-500 dark:bg-brand-600 rounded-full flex-shrink-0 mt-0.5">
+                      {num}
+                    </span>
+                    <span className="flex-1 leading-relaxed">
+                      {renderInlineText(content, `${id}-fn-${num}`)}
+                    </span>
+                  </div>
+                ))}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }, [parseFootnotes, renderInlineText]);
 
   // Helper to render text with visible whitespace markers AND formatting
-  const renderWithVisibleWhitespace = (text: string, showFormatting: boolean = true) => {
+  const renderWithVisibleWhitespace = useCallback((text: string, showFormatting: boolean = true) => {
     const hasMultipleSpaces = /  +/.test(text);
     const hasNewlines = /\n/.test(text);
 
     // First handle whitespace
     if (!hasMultipleSpaces && !hasNewlines) {
-      return showFormatting ? renderFormattedText(text) : text;
+      return showFormatting ? renderInlineText(text, 'ws') : text;
     }
 
     const result: React.ReactNode[] = [];
@@ -239,7 +348,7 @@ const ScannerView: React.FC<ScannerViewProps> = ({
           i++;
         }
         if (showFormatting) {
-          result.push(<span key={`txt-${keyCounter++}`}>{renderFormattedText(regularText)}</span>);
+          result.push(<span key={`txt-${keyCounter++}`}>{renderInlineText(regularText, `txt-${keyCounter}`)}</span>);
         } else {
           result.push(regularText);
         }
@@ -247,7 +356,7 @@ const ScannerView: React.FC<ScannerViewProps> = ({
     }
 
     return <span style={{ whiteSpace: 'pre-wrap' }}>{result}</span>;
-  };
+  }, [renderInlineText]);
 
   // Gather all mistakes from all chunks
   const allMistakes = useMemo(() => {
@@ -436,7 +545,7 @@ const ScannerView: React.FC<ScannerViewProps> = ({
       // Add text before this mistake
       if (mistake.globalStart > lastEnd) {
         elements.push(
-          <span key={`text-${idx}`} style={{ whiteSpace: 'pre-wrap' }}>{renderFormattedText(text.slice(lastEnd, mistake.globalStart))}</span>
+          <span key={`text-${idx}`} style={{ whiteSpace: 'pre-wrap' }}>{renderInlineText(text.slice(lastEnd, mistake.globalStart), `pre-${idx}`)}</span>
         );
       }
 
@@ -483,15 +592,15 @@ const ScannerView: React.FC<ScannerViewProps> = ({
           style={{ whiteSpace: 'pre-wrap' }}
           onClick={() => setSelectedMistakeId(mistake.id)}
         >
-          {(isWhitespaceOnly || (isSelected && hasSpecialWhitespace)) ? renderWithVisibleWhitespace(displayText) : renderFormattedText(displayText)}
+          {(isWhitespaceOnly || (isSelected && hasSpecialWhitespace)) ? renderWithVisibleWhitespace(displayText) : renderInlineText(displayText, `m-${mistake.id}`)}
           {!isSelected && !isApproved && (
             <span className="absolute -top-8 left-0 bg-gray-900 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10 pointer-events-none">
-              → {renderFormattedText(mistake.suggestedFix)}
+              → {renderInlineText(mistake.suggestedFix, `sug-${mistake.id}`)}
             </span>
           )}
           {!isSelected && isApproved && (
             <span className="absolute -top-8 left-0 bg-gray-900 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10 pointer-events-none">
-              było: {renderFormattedText(text.slice(mistake.globalStart, mistake.globalEnd))}
+              było: {renderInlineText(text.slice(mistake.globalStart, mistake.globalEnd), `was-${mistake.id}`)}
             </span>
           )}
         </mark>
@@ -502,7 +611,7 @@ const ScannerView: React.FC<ScannerViewProps> = ({
 
     // Add remaining text
     if (lastEnd < text.length) {
-      elements.push(<span key="text-end" style={{ whiteSpace: 'pre-wrap' }}>{renderFormattedText(text.slice(lastEnd))}</span>);
+      elements.push(<span key="text-end" style={{ whiteSpace: 'pre-wrap' }}>{renderInlineText(text.slice(lastEnd), 'end')}</span>);
     }
 
     return <span style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{elements}</span>;
