@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { AppStage, ChunkData, ScanOptions } from './types';
-import { saveBlob, generateDocxBlob } from './utils/textProcessing';
+import { saveBlob, generateDocxBlob, generateOriginalDocxBlob } from './utils/textProcessing';
 import { saveSession, loadSession, clearSession, importFromLSF, LuminaScanFile } from './utils/storage';
 import GlossarySidebar from './components/GlossarySidebar';
 import Header from './components/Header';
@@ -217,6 +217,14 @@ const App: React.FC = () => {
     setIsExporting(false);
   };
 
+  // Export original document without corrections
+  const handleExportOriginalDocx = async () => {
+    setIsExporting(true);
+    const blob = await generateOriginalDocxBlob(chunks, config.scanOptions.preserveDocxFormatting);
+    saveBlob(`${fileName}_Original.docx`, blob);
+    setIsExporting(false);
+  };
+
   // World package handlers (for glossary sidebar)
   const handleExportWorld = async () => {
     const worldData = {
@@ -350,6 +358,7 @@ const App: React.FC = () => {
           isExporting={isExporting}
           onReset={handleResetRequest}
           onExport={handleExportDocx}
+          onExportOriginal={handleExportOriginalDocx}
         />
 
         <main className="flex-1 overflow-y-auto prose-scroll mr-12">

@@ -1372,6 +1372,15 @@ export const generateDocxBlob = async (text: string, preserveFormatting: boolean
 };
 
 /**
+ * Generate DOCX from original chunks (without any corrections applied)
+ * Simply concatenates all chunk's originalText and generates DOCX
+ */
+export const generateOriginalDocxBlob = async (chunks: ChunkData[], preserveFormatting: boolean = false): Promise<Blob> => {
+  const fullOriginalText = chunks.map(chunk => chunk.originalText).join('\n\n');
+  return generateDocxBlob(fullOriginalText, preserveFormatting);
+};
+
+/**
  * Local formatting error detection - no AI needed
  * Detects: double spaces, spaces before punctuation, Polish punctuation rules, etc.
  */

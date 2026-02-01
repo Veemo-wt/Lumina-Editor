@@ -30,9 +30,36 @@ interface RawMistake {
 
 /**
  * Preserves formatting markers (**bold** and *italic*) from original text in the suggested fix.
- * AI often strips these markers, so we need to restore them.
+ * - If original has formatting, ensure suggested keeps it
+ * - If original has NO formatting, remove any formatting AI added to suggested
  */
 const preserveFormattingMarkers = (original: string, suggested: string): string => {
+    // Check if original has any formatting
+    const originalHasBold = /\*\*.+?\*\*/.test(original);
+    const originalHasItalic = /(?<!\*)\*(?!\*).+?(?<!\*)\*(?!\*)/.test(original);
+
+    // Check if suggested has any formatting
+    const suggestedHasBold = /\*\*.+?\*\*/.test(suggested);
+    const suggestedHasItalic = /(?<!\*)\*(?!\*).+?(?<!\*)\*(?!\*)/.test(suggested);
+
+    // CASE 1: Original has NO formatting - strip any formatting AI added
+    if (!originalHasBold && !originalHasItalic) {
+        if (suggestedHasBold || suggestedHasItalic) {
+            // AI added formatting that wasn't in original - remove it
+            return suggested
+                .replace(/\*\*(.+?)\*\*/g, '$1')
+                .replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g, '$1');
+        }
+        return suggested;
+    }
+
+    // CASE 2: Original has formatting - try to preserve it in suggested
+
+    // If AI already preserved formatting, return as-is
+    if (suggestedHasBold || suggestedHasItalic) {
+        return suggested;
+    }
+
     // Extract formatting info from original
     const boldMatches: Array<{ text: string; start: number; end: number }> = [];
     const italicMatches: Array<{ text: string; start: number; end: number }> = [];
@@ -57,28 +84,6 @@ const preserveFormattingMarkers = (original: string, suggested: string): string 
             end: match.index + match[0].length
         });
     }
-
-    // If no formatting in original, return suggested as-is
-    if (boldMatches.length === 0 && italicMatches.length === 0) {
-        return suggested;
-    }
-
-    // Check if suggested already has formatting (AI preserved it)
-    const suggestedHasBold = /\*\*.+?\*\*/.test(suggested);
-    const suggestedHasItalic = /(?<!\*)\*(?!\*).+?(?<!\*)\*(?!\*)/.test(suggested);
-
-    if (suggestedHasBold || suggestedHasItalic) {
-        // AI preserved formatting, return as-is
-        return suggested;
-    }
-
-    // Strip markers from original for comparison
-    const originalStripped = original
-        .replace(/\*\*(.+?)\*\*/g, '$1')
-        .replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g, '$1');
-
-    // If suggested equals stripped original, the fix was just about text not formatting
-    // Try to re-apply formatting markers
 
     let result = suggested;
 
@@ -303,7 +308,7 @@ export const scanChunk = async (request: ScanRequest): Promise<ScanResult> => {
         "Zwróć tylko format JSON",
         "ZAWSZE przypisuj kategorię do każdego błędu - nigdy nie zostawiaj pustej",
         "Dla INTERPUNKCJI: Bądź BARDZO zachowawczy - zgłaszaj tylko WYRAŹNE błędy. W razie wątpliwości NIE zgłaszaj. Polska interpunkcja jest elastyczna.",
-        "ZACHOWAJ FORMATOWANIE: Jeśli oryginalny tekst zawiera znaczniki **pogrubienia** lub *kursywy*, zachowaj je w sugerowanej poprawce na tych samych pozycjach"
+        "FORMATOWANIE: NIE DODAWAJ znaczników **pogrubienia** ani *kursywy* do tekstu, który ich nie miał. Zachowaj formatowanie TYLKO tam, gdzie było w oryginale. Jeśli oryginalny tekst nie zawiera znaczników formatowania, sugerowana poprawka też nie może ich zawierać."
     ];
 
     // Only add anti-style rule if style check is disabled
@@ -380,6 +385,25 @@ ${chunkText}`;
 
             for (const raw of (parsed.mistakes || [])) {
                 if (!raw.original || !raw.suggested) continue;
+
+                // Check if original and suggested are identical (no actual change proposed)
+                const isIdentical = raw.original === raw.suggested;
+
+                // Normalize for comparison: whitespace, quotes, dashes
+                const normalize = (s: string) => s
+                    .replace(/\s+/g, ' ')
+                    .replace(/[„""''«»]/g, '"')
+                    .replace(/[–—−]/g, '-')
+                    .trim();
+                const normalizedOriginal = normalize(raw.original);
+                const normalizedSuggested = normalize(raw.suggested);
+                const isNormalizedIdentical = normalizedOriginal === normalizedSuggested;
+
+                // Skip truly identical suggestions (AI found nothing to change)
+                if (isIdentical || isNormalizedIdentical) {
+                    console.log('[ScanService] Skipping identical original/suggested:', raw.original.slice(0, 50));
+                    continue;
+                }
 
                 const position = findMistakePosition(chunkText, raw.original, lastPosition);
 
