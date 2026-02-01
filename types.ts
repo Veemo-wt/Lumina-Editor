@@ -1,43 +1,42 @@
-
 export enum BookGenre {
-  FICTION_LITERARY = "Literatura Piękna",
-  FICTION_FANTASY = "Fantastyka / Sci-Fi",
-  FICTION_THRILLER = "Kryminał / Thriller",
-  NON_FICTION_BIO = "Biografia / Wspomnienia",
-  NON_FICTION_ACADEMIC = "Akademicka / Edukacyjna",
-  YOUNG_ADULT = "Literatura Młodzieżowa (YA)",
-  ROMANCE = "Romans",
-  HISTORICAL_FICTION = "Powieść Historyczna",
-  CHILDREN = "Dziecięca",
-  REPORTAGE = "Reportaż",
-  POPULAR_SCIENCE = "Popularnonaukowa",
-  SELF_HELP = "Poradnik / Rozwój Osobisty",
-  PSYHOLOGY = "Psychologia",
-  PHILOSOPHY = "Filozofia",
-  BUISNESS = "Biznes / Ekonomia",
-  TECHNOLOGY = "Technologia / IT",
-  RELIGION = "Religia",
-  TRAVEL = "Podróże",
-  COOKING = "Kulinaria",
-  HEALTH = "Zdrowie / Medycyna",
+  LITERATURA_PIEKNA = "Literatura Piękna",
+  FANTASTYKA_SCIFI = "Fantastyka / Sci-Fi",
+  KRYMINAL_THRILLER = "Kryminał / Thriller",
+  BIOGRAFIA_WSPOMNIENIA = "Biografia / Wspomnienia",
+  AKADEMICKA_EDUKACYJNA = "Akademicka / Edukacyjna",
+  LITERATURA_MLODZIEZOWA = "Literatura Młodzieżowa (YA)",
+  ROMANS = "Romans",
+  POWIESC_HISTORYCZNA = "Powieść Historyczna",
+  DZIECIECA = "Dziecięca",
+  REPORTAZ = "Reportaż",
+  POPULARNONAUKOWA = "Popularnonaukowa",
+  PORADNIK_ROZWOJ = "Poradnik / Rozwój Osobisty",
+  PSYCHOLOGIA = "Psychologia",
+  FILOZOFIA = "Filozofia",
+  BIZNES_EKONOMIA = "Biznes / Ekonomia",
+  TECHNOLOGIA_IT = "Technologia / IT",
+  RELIGIA = "Religia",
+  PODROZE = "Podróże",
+  KULINARIA = "Kulinaria",
+  ZDROWIE_MEDYCYNA = "Zdrowie / Medycyna",
 }
 
 export interface GlossaryItem {
   id: string;
   term: string;
   translation: string;
-  description?: string; // e.g., "Main character", "City name"
+  description?: string; // np. "Główna postać", "Nazwa miasta"
   category: "character" | "location" | "event" | "object" | "other";
 }
 
 export interface CharacterTrait {
   id: string;
-  name: string; // The character name in Source
-  polishName: string; // The character name in Target (Polish)
+  name: string; // Imię postaci w oryginale
+  polishName: string; // Imię postaci po polsku
   gender: "male" | "female" | "neutral" | "plural";
-  age?: string; // e.g. "Teenager", "Elderly", "Child"
-  speechStyle?: string; // e.g. "Formal", "Slang", "Archaic", "Stutters"
-  role?: string; // e.g. "Protagonist", "Antagonist"
+  age?: string; // np. "Nastolatek", "Starsza osoba", "Dziecko"
+  speechStyle?: string; // np. "Formalny", "Slangowy", "Archaiczny", "Jąkający się"
+  role?: string; // np. "Protagonista", "Antagonista"
   notes?: string;
 }
 
@@ -46,7 +45,7 @@ export interface RagEntry {
   sourceText: string;
   translatedText: string;
   vector: number[];
-  sourceOrigin?: string; // e.g. "Tome 1 - Chapter 5"
+  sourceOrigin?: string; // np. "Tom 1 - Rozdział 5"
 }
 
 export interface ProcessingStats {
@@ -54,34 +53,34 @@ export interface ProcessingStats {
   processedCharacters: number;
   currentChunkIndex: number;
   totalChunks: number;
-  estimatedTimeRemaining: number; // in seconds
+  estimatedTimeRemaining: number; // w sekundach
   startTime: number;
 }
 
-// Mistake found by AI or local detection
+// Błąd znaleziony przez AI lub wykrycie lokalne
 export interface Mistake {
   id: string;
   chunkId: number;
-  originalText: string;      // The incorrect text
-  suggestedFix: string;      // The proposed correction
-  reason: string;            // Why it's a mistake (grammar, spelling, etc.)
+  originalText: string;      // Nieprawidłowy tekst
+  suggestedFix: string;      // Proponowana poprawka
+  reason: string;            // Dlaczego to błąd (gramatyka, ortografia itp.)
   category: 'grammar' | 'orthography' | 'punctuation' | 'style' | 'gender' | 'localization' | 'formatting' | 'other';
   position: {
-    start: number;           // Character position in chunk
+    start: number;           // Pozycja znaku we fragmencie
     end: number;
   };
   status: 'pending' | 'approved' | 'rejected';
-  source: 'ai' | 'local';    // Whether detected by AI or local rules
+  source: 'ai' | 'local';    // Czy wykryto przez AI czy lokalne reguły
 }
 
 export interface ChunkData {
   id: number;
   originalText: string;
-  correctedText: string | null;  // Text after applying approved fixes
-  mistakes: Mistake[];           // List of mistakes found in this chunk
+  correctedText: string | null;  // Tekst po zastosowaniu zatwierdzonych poprawek
+  mistakes: Mistake[];           // Lista błędów znalezionych w tym fragmencie
   status: "pending" | "processing" | "completed" | "error";
   errorMsg?: string;
-  sourceFileName?: string; // To track which chapter/file this chunk belongs to
+  sourceFileName?: string; // Do śledzenia, do którego rozdziału/pliku należy ten fragment
 }
 
 export interface ScanOptions {
@@ -100,7 +99,7 @@ export interface ScanOptions {
 export interface TranslationConfig {
   apiKey: string;
   model: string;
-  scanOptions: ScanOptions; // Replaces genre/tone
+  scanOptions: ScanOptions; // Zastępuje genre/tone
   glossary: GlossaryItem[];
   characterBible: CharacterTrait[];
   ragEntries: RagEntry[];

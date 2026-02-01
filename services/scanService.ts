@@ -116,7 +116,7 @@ const preserveFormattingMarkers = (original: string, suggested: string): string 
 };
 
 const createClient = (apiKey: string) => {
-    if (!apiKey) throw new Error("API Key is missing");
+    if (!apiKey) throw new Error("Brak klucza API");
     return new OpenAI({
         apiKey: apiKey,
         dangerouslyAllowBrowser: true
@@ -256,79 +256,79 @@ export const scanChunk = async (request: ScanRequest): Promise<ScanResult> => {
     const { relevantGlossary, relevantBible } = filterRelevantContext(combinedContextText, glossary, characterBible || []);
 
     const glossaryString = relevantGlossary
-        .map(g => `TERM: "${g.term}" -> "${g.translation}" (${g.category}) - ${g.description || ''}`)
+        .map(g => `TERMIN: "${g.term}" -> "${g.translation}" (${g.category}) - ${g.description || ''}`)
         .join('\n');
 
     const bibleString = relevantBible
-        .map(c => `CHAR: "${c.name}" -> PL: "${c.polishName}" (${c.gender}, ${c.speechStyle || 'Normal'}) - ${c.notes || ''}`)
+        .map(c => `POSTAĆ: "${c.name}" -> PL: "${c.polishName}" (${c.gender}, ${c.speechStyle || 'Normalny'}) - ${c.notes || ''}`)
         .join('\n');
 
     // Build checks list
     const checks = [];
-    if (scanOptions.checkGrammar) checks.push("- GRAMMAR: Grammatical errors, conjugation, declension");
-    if (scanOptions.checkOrthography) checks.push("- ORTHOGRAPHY: Spelling mistakes");
-    if (scanOptions.checkGender) checks.push("- GENDER: Gender consistency with Character Bible");
-    if (scanOptions.checkStyle) checks.push("- STYLE: Readability issues, awkward phrasing, repetitive words, unclear sentences. Suggest improvements for better flow and clarity");
-    if (scanOptions.checkPunctuation) checks.push(`- PUNCTUATION: Polish punctuation rules. BE VERY CAREFUL and CONSERVATIVE:
-      * Do NOT add commas before "i", "oraz", "lub", "albo", "ani", "czy" when they connect equal parts
-      * Do NOT change "i" to comma - Polish allows multiple "i" conjunctions in a sentence
-      * Comma IS required before "i" ONLY when it starts a new independent clause (with its own subject+verb)
-      * Comma IS required before: "który", "która", "które", "że", "żeby", "aby", "ponieważ", "gdyż", "choć", "chociaż", "jeśli", "jeżeli", "gdy", "kiedy"
-      * Comma separates clauses in compound sentences
-      * Use Polish dialogue dashes (–) not hyphens (-) for dialogue
-      * Report ONLY clear punctuation errors, NOT stylistic preferences`);
-    if (scanOptions.checkLocalization) checks.push("- LOCALIZATION: Identify calques, literal translations of idioms/sayings from other languages. Suggest natural Polish equivalents or rephrasings that preserve meaning but sound native");
-    if (scanOptions.wrapThoughtsInQuotes) checks.push(`- THOUGHTS: Find character's internal thoughts/monologue that are NOT wrapped in Polish quotation marks „..." and suggest adding them. Internal thoughts should be distinguished from narration.`);
+    if (scanOptions.checkGrammar) checks.push("- GRAMATYKA: Błędy gramatyczne, koniugacja, deklinacja");
+    if (scanOptions.checkOrthography) checks.push("- ORTOGRAFIA: Błędy ortograficzne");
+    if (scanOptions.checkGender) checks.push("- RODZAJ: Spójność rodzaju z Biblią postaci");
+    if (scanOptions.checkStyle) checks.push("- STYL: Problemy z czytelnością, niezręczne sformułowania, powtarzające się słowa, niejasne zdania. Sugeruj ulepszenia dla lepszej płynności i przejrzystości");
+    if (scanOptions.checkPunctuation) checks.push(`- INTERPUNKCJA: Polskie zasady interpunkcji. Bądź BARDZO OSTROŻNY i ZACHOWAWCZY:
+      * NIE dodawaj przecinków przed "i", "oraz", "lub", "albo", "ani", "czy" gdy łączą równorzędne części
+      * NIE zamieniaj "i" na przecinek - polski dopuszcza wielokrotne spójniki "i" w zdaniu
+      * Przecinek JEST wymagany przed "i" TYLKO gdy rozpoczyna nowe zdanie niezależne (z własnym podmiotem+orzeczeniem)
+      * Przecinek JEST wymagany przed: "który", "która", "które", "że", "żeby", "aby", "ponieważ", "gdyż", "choć", "chociaż", "jeśli", "jeżeli", "gdy", "kiedy"
+      * Przecinek rozdziela zdania w zdaniach złożonych
+      * Używaj polskich pauz dialogowych (–) nie łączników (-) w dialogach
+      * Zgłaszaj TYLKO wyraźne błędy interpunkcyjne, NIE preferencje stylistyczne`);
+    if (scanOptions.checkLocalization) checks.push("- LOKALIZACJA: Identyfikuj kalki językowe, dosłowne tłumaczenia idiomów/powiedzeń z innych języków. Sugeruj naturalne polskie odpowiedniki lub przeformułowania, które zachowują znaczenie, ale brzmią naturalnie");
+    if (scanOptions.wrapThoughtsInQuotes) checks.push(`- MYŚLI: Znajdź wewnętrzne myśli/monolog postaci, które NIE są otoczone polskimi cudzysłowami „..." i zasugeruj ich dodanie. Myśli wewnętrzne powinny być odróżnione od narracji.`);
 
     // Note: FORMATTING (double spaces, spaces before punctuation) is handled locally without AI
 
     // Build rules list - conditionally include stylistic preferences rule
     const rules = [
-        "Each mistake must include the EXACT original text as it appears",
-        "Do NOT process or analyze the LOOKBACK section - it's only for context",
-        "Return JSON format only",
-        "ALWAYS assign a category to each mistake - never leave it empty",
-        "For PUNCTUATION: Be VERY conservative - only report CLEAR errors. When in doubt, do NOT report. Polish punctuation is flexible.",
-        "PRESERVE FORMATTING: If original text contains **bold** or *italic* markers, keep them in the suggested fix in the same positions"
+        "Każdy błąd musi zawierać DOKŁADNY oryginalny tekst tak, jak się pojawia",
+        "NIE przetwarzaj ani nie analizuj sekcji KONTEKST WSTECZNY - służy tylko jako kontekst",
+        "Zwróć tylko format JSON",
+        "ZAWSZE przypisuj kategorię do każdego błędu - nigdy nie zostawiaj pustej",
+        "Dla INTERPUNKCJI: Bądź BARDZO zachowawczy - zgłaszaj tylko WYRAŹNE błędy. W razie wątpliwości NIE zgłaszaj. Polska interpunkcja jest elastyczna.",
+        "ZACHOWAJ FORMATOWANIE: Jeśli oryginalny tekst zawiera znaczniki **pogrubienia** lub *kursywy*, zachowaj je w sugerowanej poprawce na tych samych pozycjach"
     ];
 
     // Only add anti-style rule if style check is disabled
     if (!scanOptions.checkStyle) {
-        rules.unshift("Return ONLY actual mistakes, not stylistic preferences");
+        rules.unshift("Zwracaj TYLKO rzeczywiste błędy, nie preferencje stylistyczne");
     }
 
-    const systemPrompt = `You are a professional Polish editor and proofreader.
-Your task is to FIND MISTAKES in the provided Polish text based on these enabled checks:
+    const systemPrompt = `Jesteś profesjonalnym polskim redaktorem i korektorem.
+Twoim zadaniem jest ZNALEZIENIE BŁĘDÓW w dostarczonym polskim tekście na podstawie włączonych sprawdzeń:
 
 ${checks.join('\n')}
 
-**IMPORTANT RULES:**
+**WAŻNE ZASADY:**
 ${rules.map((r, i) => `${i + 1}. ${r}`).join('\n')}
 
-**CHARACTER CONTEXT:**
-${bibleString.length > 0 ? bibleString : '(None)'}
+**KONTEKST POSTACI:**
+${bibleString.length > 0 ? bibleString : '(Brak)'}
 
-**GLOSSARY:**
-${glossaryString.length > 0 ? glossaryString : '(None)'}
+**SŁOWNIK:**
+${glossaryString.length > 0 ? glossaryString : '(Brak)'}
 
-**OUTPUT FORMAT - Return valid JSON array:**
+**FORMAT WYJŚCIOWY - Zwróć prawidłową tablicę JSON:**
 {
   "mistakes": [
     {
-      "original": "exact text with mistake",
-      "suggested": "corrected text",
-      "reason": "Brief explanation in Polish",
+      "original": "dokładny tekst z błędem",
+      "suggested": "poprawiony tekst",
+      "reason": "Krótkie wyjaśnienie po polsku",
       "category": "grammar|orthography|punctuation|style|gender|localization|formatting|other"
     }
   ]
 }
 
-If no mistakes found, return: {"mistakes": []}`;
+Jeśli nie znaleziono błędów, zwróć: {"mistakes": []}`;
 
-    const userContent = `**LOOKBACK (Context only, do NOT analyze):**
-${lookbackText || "(None)"}
+    const userContent = `**KONTEKST WSTECZNY (Tylko jako odniesienie, NIE analizuj):**
+${lookbackText || "(Brak)"}
 
-**TEXT TO ANALYZE:**
+**TEKST DO ANALIZY:**
 ${chunkText}`;
 
     let attempt = 0;
@@ -396,13 +396,13 @@ ${chunkText}`;
         } catch (error: any) {
             console.error('[ScanService] API error:', error);
             if (error?.status === 429) {
-                if (attempt === maxRetries) throw new Error("Rate limit exceeded.");
+                if (attempt === maxRetries) throw new Error("Przekroczono limit zapytań.");
                 const waitTime = (attempt + 1) * 15000;
                 await delay(waitTime);
                 attempt++;
                 continue;
             }
-            throw new Error(error?.message || "Failed to scan chunk.");
+            throw new Error(error?.message || "Nie udało się zeskanować fragmentu.");
         }
     }
     throw new Error("Scanning failed.");

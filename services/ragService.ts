@@ -29,7 +29,7 @@ export const generateEmbedding = async (text: string, apiKey: string): Promise<n
   
   try {
     const response = await client.embeddings.create({
-      model: "text-embedding-3-small", // High performance, low cost
+      model: "text-embedding-3-small", // Wysoka wydajność, niski koszt
       input: text.replace(/\n/g, ' '), // Normalize newlines
     });
     return response.data[0].embedding;
