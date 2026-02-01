@@ -1,4 +1,3 @@
-
 export const DB_NAME = 'LuminaDB';
 export const STORE_NAME = 'session';
 const SESSION_KEY = 'autosave_v1';
@@ -67,4 +66,112 @@ export const clearSession = async () => {
   } catch (e) {
     console.error("Failed to clear session", e);
   }
+};
+
+/**
+ * Interfejs dla eksportu pliku .lsf (Lumina Scan File)
+ * Zawiera wszystkie dane potrzebne do kontynuacji edycji przez redaktora
+ * BEZ klucza API i danych wrażliwych
+ */
+export interface LuminaScanFile {
+  version: string;
+  exportDate: string;
+  fileName: string;
+  chunks: any[]; // ChunkData[]
+  config: {
+    scanOptions: any;
+    glossary: any[];
+    characterBible: any[];
+    chunkSize: number;
+    lookbackSize: number;
+    chapterPattern?: string;
+  };
+  metadata: {
+    totalMistakes: number;
+    approvedMistakes: number;
+    rejectedMistakes: number;
+    pendingMistakes: number;
+    totalChunks: number;
+    completedChunks: number;
+  };
+}
+
+/**
+ * Eksportuje dane sesji do pliku .lsf
+ */
+export const exportToLSF = (
+  fileName: string,
+  chunks: any[],
+  config: any
+): Blob => {
+  // Oblicz statystyki
+  let totalMistakes = 0;
+  let approvedMistakes = 0;
+  let rejectedMistakes = 0;
+  let pendingMistakes = 0;
+  let completedChunks = 0;
+
+  chunks.forEach(chunk => {
+    if (chunk.status === 'completed') completedChunks++;
+    (chunk.mistakes || []).forEach((m: any) => {
+      totalMistakes++;
+      if (m.status === 'approved') approvedMistakes++;
+      else if (m.status === 'rejected') rejectedMistakes++;
+      else pendingMistakes++;
+    });
+  });
+
+  const lsfData: LuminaScanFile = {
+    version: '1.0',
+    exportDate: new Date().toISOString(),
+    fileName,
+    chunks,
+    config: {
+      scanOptions: config.scanOptions,
+      glossary: config.glossary || [],
+      characterBible: config.characterBible || [],
+      chunkSize: config.chunkSize,
+      lookbackSize: config.lookbackSize,
+      chapterPattern: config.chapterPattern
+    },
+    metadata: {
+      totalMistakes,
+      approvedMistakes,
+      rejectedMistakes,
+      pendingMistakes,
+      totalChunks: chunks.length,
+      completedChunks
+    }
+  };
+
+  const jsonString = JSON.stringify(lsfData, null, 2);
+  return new Blob([jsonString], { type: 'application/json' });
+};
+
+/**
+ * Importuje dane z pliku .lsf
+ */
+export const importFromLSF = async (file: File): Promise<LuminaScanFile> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+
+    reader.onload = (e) => {
+      try {
+        const content = e.target?.result as string;
+        const data = JSON.parse(content) as LuminaScanFile;
+
+        // Walidacja podstawowa
+        if (!data.version || !data.chunks || !data.config) {
+          throw new Error('Nieprawidłowy format pliku .lsf');
+        }
+
+        resolve(data);
+      } catch (err) {
+        reject(new Error('Nie udało się odczytać pliku .lsf: ' + (err as Error).message));
+      }
+    };
+
+    reader.onerror = () => reject(new Error('Błąd odczytu pliku'));
+    reader.readAsText(file);
+  });
 };

@@ -1,22 +1,24 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { AppStage, TranslationConfig, ChunkData, RawFile, Mistake } from './types';
-import { chunkText, getLookback, saveBlob, generateDocxBlob, createWorldPackage, parseWorldPackage, detectFormattingErrors } from './utils/textProcessing';
-
-import { scanChunk } from './services/scanService';
-
-import { saveSession, loadSession, clearSession } from './utils/storage';
-import { calculateSessionCost } from './utils/models';
-import FileUpload from './components/FileUpload';
-import ConfigPanel from './components/ConfigPanel';
+import { AppStage, ChunkData, ScanOptions } from './types';
+import { saveBlob, generateDocxBlob } from './utils/textProcessing';
+import { saveSession, loadSession, clearSession, importFromLSF, LuminaScanFile } from './utils/storage';
 import GlossarySidebar from './components/GlossarySidebar';
 import Header from './components/Header';
 import ScannerView from './components/ScannerView';
-import { Loader2 } from 'lucide-react';
+import { Loader2, FileText, AlertCircle, CheckCircle2, Upload, BarChart3 } from 'lucide-react';
 import ConfirmModal from './components/ConfirmModal';
 
-const DEFAULT_CONFIG: TranslationConfig = {
-  apiKey: '',
-  model: 'gpt-4o',
+// Uproszczona konfiguracja dla Editora (bez API key)
+interface EditorConfig {
+  scanOptions: ScanOptions;
+  glossary: any[];
+  characterBible: any[];
+  chunkSize: number;
+  lookbackSize: number;
+  chapterPattern?: string;
+}
+
+const DEFAULT_CONFIG: EditorConfig = {
   scanOptions: {
     checkGrammar: true,
     checkOrthography: true,
@@ -27,66 +29,45 @@ const DEFAULT_CONFIG: TranslationConfig = {
     checkFormatting: true,
     wrapThoughtsInQuotes: false,
     indesignImport: false,
-    preserveDocxFormatting: true // domyślnie włączone
+    preserveDocxFormatting: true
   },
   glossary: [],
   characterBible: [],
-  ragEntries: [],
   chunkSize: 40000,
   lookbackSize: 10000,
   chapterPattern: '(Chapter|Rozdział|Part)\\s+\\d+'
 };
 
+type EditorStage = 'upload' | 'review';
+
 const App: React.FC = () => {
-  const [stage, setStage] = useState<AppStage>('upload');
-  const [rawFiles, setRawFiles] = useState<RawFile[]>([]);
+  const [stage, setStage] = useState<EditorStage>('upload');
   const [fileName, setFileName] = useState<string>('');
-  const [config, setConfig] = useState<TranslationConfig>(DEFAULT_CONFIG);
+  const [config, setConfig] = useState<EditorConfig>(DEFAULT_CONFIG);
   const [chunks, setChunks] = useState<ChunkData[]>([]);
-  const [currentChunkIdx, setCurrentChunkIdx] = useState<number>(0);
-  const [isProcessing, setIsProcessing] = useState<boolean>(false);
-  const [processingError, setProcessingError] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
   const [isRestoring, setIsRestoring] = useState(true);
-
-  // Real-time Usage State
-  const [sessionUsage, setSessionUsage] = useState({
-    promptTokens: 0,
-    completionTokens: 0,
-    totalCost: 0
-  });
-
-  const [sessionStartTime, setSessionStartTime] = useState<number | null>(null);
-  const [sessionStartChunkIdx, setSessionStartChunkIdx] = useState<number>(0);
-  const [estimatedTimeRemaining, setEstimatedTimeRemaining] = useState<string>('--:--');
   const [isResetModalOpen, setIsResetModalOpen] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
+  const [metadata, setMetadata] = useState<LuminaScanFile['metadata'] | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
 
-  const configRef = useRef(config);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    configRef.current = config;
-  }, [config]);
-
+  // Restore session on load
   useEffect(() => {
     const restoreState = async () => {
       try {
         const saved = await loadSession();
-        if (saved && saved.stage !== 'upload') {
-          setRawFiles(saved.rawFiles || []);
+        if (saved && saved.stage === 'review') {
           setFileName(saved.fileName || '');
           setConfig(prev => ({
             ...DEFAULT_CONFIG,
-            ...saved.config,
-            ragEntries: saved.config?.ragEntries || []
+            ...saved.config
           }));
           setChunks(saved.chunks || []);
-          setCurrentChunkIdx(saved.currentChunkIdx || 0);
-          setStage(saved.stage || 'upload');
-          setIsProcessing(false);
-          // Restore session usage for calculator
-          if (saved.sessionUsage) {
-            setSessionUsage(saved.sessionUsage);
-          }
+          setMetadata(saved.metadata || null);
+          setStage('review');
         }
       } catch (e) {
         console.error("Failed to restore state", e);
@@ -97,13 +78,14 @@ const App: React.FC = () => {
     restoreState();
   }, []);
 
+  // Auto-save session
   useEffect(() => {
     if (isRestoring || stage === 'upload') return;
     const timer = setTimeout(() => {
-      saveSession({ stage, rawFiles, fileName, config, chunks, currentChunkIdx, sessionUsage });
+      saveSession({ stage, fileName, config, chunks, metadata });
     }, 2000);
     return () => clearTimeout(timer);
-  }, [stage, rawFiles, fileName, config, chunks, currentChunkIdx, sessionUsage, isRestoring]);
+  }, [stage, fileName, config, chunks, metadata, isRestoring]);
 
   const handleResetRequest = () => {
     setIsResetModalOpen(true);
@@ -112,318 +94,110 @@ const App: React.FC = () => {
   const handleConfirmReset = async () => {
     await clearSession();
     setStage('upload');
-    setRawFiles([]);
     setFileName('');
     setChunks([]);
-    setCurrentChunkIdx(0);
     setConfig(DEFAULT_CONFIG);
-    setIsProcessing(false);
-    setSessionUsage({ promptTokens: 0, completionTokens: 0, totalCost: 0 });
+    setMetadata(null);
+    setImportError(null);
     setIsResetModalOpen(false);
   };
 
-  const handleFileLoaded = async (files: RawFile[], name: string) => {
-    setRawFiles(files);
-    setFileName(name);
-    setStage('config');
-  };
-
-  const startScan = async () => {
-    console.log('[Scanner] startScan called:', { chunksLength: chunks.length, currentChunkIdx, rawFilesLength: rawFiles.length });
-
-    if (chunks.length > 0 && currentChunkIdx > 0) {
-      console.log('[Scanner] Resuming existing session');
-      if (currentChunkIdx >= chunks.length) {
-        console.log('[Scanner] Session was already complete, going to review');
-        setStage('review');
-        return;
-      }
-      setStage('processing');
-      setIsProcessing(true);
-      setSessionStartTime(Date.now());
-      setSessionStartChunkIdx(currentChunkIdx);
+  // Import .lsf file
+  const handleFileImport = async (file: File) => {
+    if (!file.name.endsWith('.lsf')) {
+      setImportError('Proszę wybrać plik .lsf (Lumina Scan File)');
       return;
     }
 
-    if (rawFiles.length === 0) {
-      console.error('[Scanner] No files to process!');
-      setProcessingError('Brak plików do przetworzenia.');
-      return;
-    }
+    try {
+      setImportError(null);
+      const lsfData = await importFromLSF(file);
 
-    let globalChunkId = 0;
-    const allChunks: ChunkData[] = [];
-    for (const file of rawFiles) {
-      const fileChunks = chunkText(file.content, config.chunkSize, config.chapterPattern);
-      fileChunks.forEach(c => {
-        allChunks.push({
-          id: globalChunkId++,
-          originalText: c.originalText,
-          correctedText: null,
-          mistakes: [],
-          status: 'pending',
-          sourceFileName: c.sourceFileName || file.name
-        });
+      setFileName(lsfData.fileName);
+      setChunks(lsfData.chunks);
+      setConfig({
+        scanOptions: lsfData.config.scanOptions || DEFAULT_CONFIG.scanOptions,
+        glossary: lsfData.config.glossary || [],
+        characterBible: lsfData.config.characterBible || [],
+        chunkSize: lsfData.config.chunkSize || 40000,
+        lookbackSize: lsfData.config.lookbackSize || 10000,
+        chapterPattern: lsfData.config.chapterPattern
       });
-    }
-
-    console.log('[Scanner] Created chunks:', allChunks.length);
-
-    if (allChunks.length === 0) {
-      console.error('[Scanner] No chunks created from files!');
-      setProcessingError('Nie udało się utworzyć segmentów z plików.');
-      return;
-    }
-
-    setChunks(allChunks);
-    setCurrentChunkIdx(0);
-    setStage('processing');
-    setIsProcessing(true);
-    setSessionStartTime(Date.now());
-    setSessionStartChunkIdx(0);
-  };
-
-  const updateETR = () => {
-    if (!sessionStartTime || currentChunkIdx <= sessionStartChunkIdx) return;
-    const chunksProcessedInSession = currentChunkIdx - sessionStartChunkIdx;
-    const timeElapsed = Date.now() - sessionStartTime;
-    const avgTimePerChunk = timeElapsed / chunksProcessedInSession;
-    const timeLeftMs = avgTimePerChunk * (chunks.length - currentChunkIdx);
-    const minutes = Math.floor(timeLeftMs / 60000);
-    const seconds = Math.floor((timeLeftMs % 60000) / 1000);
-    setEstimatedTimeRemaining(`${minutes}m ${seconds}s`);
-  };
-
-  const handleExportWorld = async () => {
-    try {
-      const blob = await createWorldPackage(
-        config.glossary,
-        config.characterBible,
-        config.ragEntries
-      );
-      saveBlob(`${fileName.replace(/\.[^/.]+$/, "")}_World.lumina`, blob);
-    } catch (e) {
-      alert("Export failed: " + e);
+      setMetadata(lsfData.metadata);
+      setStage('review');
+    } catch (err) {
+      setImportError((err as Error).message);
     }
   };
 
-  const handleImportWorld = async (file: File) => {
-    try {
-      const { glossary, characterBible, ragEntries } = await parseWorldPackage(file);
-      setConfig(prev => ({
-        ...prev,
-        glossary: [...prev.glossary, ...glossary],
-        characterBible: [...prev.characterBible, ...characterBible],
-        ragEntries: [...prev.ragEntries, ...ragEntries]
-      }));
-      alert(`Wczytano: ${glossary.length} terminów, ${characterBible.length} postaci, ${ragEntries.length} segmentów pamięci.`);
-    } catch (e) {
-      alert("Import nie powiódł się. Upewnij się, że plik jest prawidłowym pakietem .lumina lub .json.");
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      handleFileImport(file);
     }
   };
 
-  // Processing Effect - scans chunks and finds mistakes
-  useEffect(() => {
-    let isMounted = true;
-    const processNextChunk = async () => {
-      console.log('[Scanner] processNextChunk called:', { isProcessing, currentChunkIdx, chunksLength: chunks.length });
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const file = e.dataTransfer.files[0];
+    if (file) {
+      handleFileImport(file);
+    }
+  };
 
-      if (!isProcessing || !isMounted || currentChunkIdx >= chunks.length) {
-        console.log('[Scanner] Early exit:', { isProcessing, isMounted, currentChunkIdx, chunksLength: chunks.length });
-        if (currentChunkIdx >= chunks.length && chunks.length > 0) {
-          setIsProcessing(false);
-          setStage('review');
-        }
-        return;
-      }
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
 
-      const chunk = chunks[currentChunkIdx];
-      if (!chunk) {
-        console.error('[Scanner] Chunk is undefined at index:', currentChunkIdx);
-        return;
-      }
+  const handleDragLeave = () => {
+    setIsDragging(false);
+  };
 
-      if (chunk.status === 'completed') {
-        setCurrentChunkIdx(prev => prev + 1);
-        return;
-      }
-
-      try {
-        console.log('[Scanner] Processing chunk:', chunk.id, 'with model:', configRef.current.model);
-        setChunks(prev => prev.map(c => c.id === chunk.id ? { ...c, status: 'processing' } : c));
-        setProcessingError(null);
-
-        // Prepare Context (Lookback)
-        let lookbackText = "";
-        if (currentChunkIdx > 0) {
-          lookbackText = getLookback(chunks[currentChunkIdx - 1].originalText, configRef.current.lookbackSize);
-        }
-
-        // Step 1: Local formatting detection (no AI needed) - only if enabled
-        let formattingMistakes: Mistake[] = [];
-        if (configRef.current.scanOptions.checkFormatting) {
-          const localMistakes = detectFormattingErrors(chunk.originalText, configRef.current.scanOptions.indesignImport);
-          formattingMistakes = localMistakes.map(m => ({
-            id: `${chunk.id}-local-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-            chunkId: chunk.id,
-            originalText: m.originalText,
-            suggestedFix: m.suggestedFix,
-            reason: m.reason,
-            category: 'formatting' as const,
-            position: m.position,
-            status: 'pending' as const,
-            source: 'local' as const
-          }));
-          console.log('[Scanner] Local formatting errors found:', formattingMistakes.length);
-        }
-
-        // Step 2: Call AI Scan API - returns additional mistakes
-        console.log('[Scanner] Calling scanChunk API...');
-        const result = await scanChunk({
-          chunkId: chunk.id,
-          chunkText: chunk.originalText,
-          lookbackText,
-          scanOptions: configRef.current.scanOptions,
-          glossary: configRef.current.glossary,
-          characterBible: configRef.current.characterBible,
-          apiKey: configRef.current.apiKey,
-          model: configRef.current.model
-        });
-        console.log('[Scanner] scanChunk result received:', { mistakesCount: result.mistakes.length, usage: result.usage });
-
-        if (!isMounted) return;
-
-        // Step 3: Combine local and AI mistakes, removing overlaps
-        // Local formatting has priority - filter out AI mistakes that overlap with local ones
-        const aiMistakes = result.mistakes.filter(aiMistake => {
-          // Check if AI found something that overlaps with local formatting
-          const overlapsWithLocal = formattingMistakes.some(localMistake => {
-            // Check for any position overlap
-            const localStart = localMistake.position.start;
-            const localEnd = localMistake.position.end;
-            const aiStart = aiMistake.position.start;
-            const aiEnd = aiMistake.position.end;
-
-            // Overlaps if: NOT (aiEnd <= localStart OR aiStart >= localEnd)
-            const hasOverlap = !(aiEnd <= localStart || aiStart >= localEnd);
-
-            // Also check for same/similar text at close positions
-            const closePosition = Math.abs(localStart - aiStart) < 10;
-            const similarText = localMistake.originalText.includes(aiMistake.originalText) ||
-                               aiMistake.originalText.includes(localMistake.originalText);
-
-            return hasOverlap || (closePosition && similarText);
-          });
-          return !overlapsWithLocal;
-        });
-
-        // Combine and sort by position
-        const allMistakes = [...formattingMistakes, ...aiMistakes];
-        allMistakes.sort((a, b) => a.position.start - b.position.start);
-
-        // Final pass: remove any remaining overlaps (keep first one)
-        const finalMistakes = allMistakes.filter((mistake, idx) => {
-          if (idx === 0) return true;
-          const prevMistake = allMistakes[idx - 1];
-          // Skip if this mistake starts before previous one ends
-          return mistake.position.start >= prevMistake.position.end;
-        });
-
-        // Update Stats
-        const cost = calculateSessionCost(configRef.current.model, result.usage.prompt_tokens, result.usage.completion_tokens);
-        setSessionUsage(prev => ({
-          promptTokens: prev.promptTokens + result.usage.prompt_tokens,
-          completionTokens: prev.completionTokens + result.usage.completion_tokens,
-          totalCost: prev.totalCost + cost
-        }));
-
-        // Update chunk with found mistakes (both local and AI)
-        setChunks(prev => prev.map(c => c.id === chunk.id ? {
-          ...c,
-          status: 'completed',
-          mistakes: finalMistakes,
-          correctedText: null // Will be computed when mistakes are approved
-        } : c));
-
-        updateETR();
-        setCurrentChunkIdx(prev => prev + 1);
-
-      } catch (err: any) {
-        console.error('[Scanner] Error during processing:', err);
-        if (!isMounted) return;
-        setChunks(prev => prev.map(c => c.id === chunk.id ? { ...c, status: 'error', errorMsg: err.message } : c));
-        setIsProcessing(false);
-        setProcessingError(err.message || "Błąd API.");
-      }
-    };
-    processNextChunk();
-    return () => { isMounted = false; };
-  }, [isProcessing, currentChunkIdx, chunks.length]);
-
-  // Approve a single mistake
+  // Mistake handlers
   const handleApproveMistake = (mistakeId: string) => {
     setChunks(prev => prev.map(chunk => ({
       ...chunk,
-      mistakes: chunk.mistakes.map(m =>
-        m.id === mistakeId ? { ...m, status: 'approved' as const } : m
-      )
+      mistakes: chunk.mistakes.map(m => m.id === mistakeId ? { ...m, status: 'approved' as const } : m)
     })));
   };
 
-  // Reject a single mistake
   const handleRejectMistake = (mistakeId: string) => {
     setChunks(prev => prev.map(chunk => ({
       ...chunk,
-      mistakes: chunk.mistakes.map(m =>
-        m.id === mistakeId ? { ...m, status: 'rejected' as const } : m
-      )
+      mistakes: chunk.mistakes.map(m => m.id === mistakeId ? { ...m, status: 'rejected' as const } : m)
     })));
   };
 
-  // Approve all specified mistakes (or all pending if no IDs provided)
-  const handleApproveAll = (mistakeIds?: string[]) => {
-    setChunks(prev => prev.map(chunk => ({
-      ...chunk,
-      mistakes: chunk.mistakes.map(m => {
-        if (m.status !== 'pending') return m;
-        if (mistakeIds && !mistakeIds.includes(m.id)) return m;
-        return { ...m, status: 'approved' as const };
-      })
-    })));
-  };
-
-  // Reject all specified mistakes (or all pending if no IDs provided)
-  const handleRejectAll = (mistakeIds?: string[]) => {
-    setChunks(prev => prev.map(chunk => ({
-      ...chunk,
-      mistakes: chunk.mistakes.map(m => {
-        if (m.status !== 'pending') return m;
-        if (mistakeIds && !mistakeIds.includes(m.id)) return m;
-        return { ...m, status: 'rejected' as const };
-      })
-    })));
-  };
-
-  // Revert a mistake back to pending (undo approve/reject)
   const handleRevertMistake = (mistakeId: string) => {
     setChunks(prev => prev.map(chunk => ({
       ...chunk,
-      mistakes: chunk.mistakes.map(m =>
-        m.id === mistakeId ? { ...m, status: 'pending' as const } : m
-      )
+      mistakes: chunk.mistakes.map(m => m.id === mistakeId ? { ...m, status: 'pending' as const } : m)
     })));
   };
 
-  // Apply approved fixes to generate corrected text
-  const applyCorrectionToChunk = (chunk: ChunkData): string => {
-    let text = chunk.originalText;
+  const handleApproveAll = () => {
+    setChunks(prev => prev.map(chunk => ({
+      ...chunk,
+      mistakes: chunk.mistakes.map(m => m.status === 'pending' ? { ...m, status: 'approved' as const } : m)
+    })));
+  };
 
-    // Sort approved mistakes by position (descending) to apply from end to start
-    // This prevents position shifts from affecting subsequent replacements
+  const handleRejectAll = () => {
+    setChunks(prev => prev.map(chunk => ({
+      ...chunk,
+      mistakes: chunk.mistakes.map(m => m.status === 'pending' ? { ...m, status: 'rejected' as const } : m)
+    })));
+  };
+
+  // Apply corrections to chunk
+  const applyCorrectionToChunk = (chunk: ChunkData): string => {
     const approvedMistakes = chunk.mistakes
       .filter(m => m.status === 'approved')
       .sort((a, b) => b.position.start - a.position.start);
 
+    let text = chunk.originalText;
     for (const mistake of approvedMistakes) {
       const before = text.slice(0, mistake.position.start);
       const after = text.slice(mistake.position.end);
@@ -436,27 +210,32 @@ const App: React.FC = () => {
   // Export corrected document
   const handleExportDocx = async () => {
     setIsExporting(true);
-
-    // Generate corrected text for each chunk
     const correctedChunks = chunks.map(chunk => applyCorrectionToChunk(chunk));
     const fullText = correctedChunks.join('\n\n');
-
     const blob = await generateDocxBlob(fullText, config.scanOptions.preserveDocxFormatting);
     saveBlob(`${fileName}_Corrected.docx`, blob);
     setIsExporting(false);
   };
 
-  // Export original document (without any corrections)
-  const handleExportOriginal = async () => {
-    setIsExporting(true);
+  // World package handlers (for glossary sidebar)
+  const handleExportWorld = async () => {
+    const worldData = {
+      glossary: config.glossary,
+      characterBible: config.characterBible
+    };
+    const blob = new Blob([JSON.stringify(worldData, null, 2)], { type: 'application/json' });
+    saveBlob('lumina_world.json', blob);
+  };
 
-    // Use original text from chunks
-    const originalChunks = chunks.map(chunk => chunk.originalText);
-    const fullText = originalChunks.join('\n\n');
-
-    const blob = await generateDocxBlob(fullText, config.scanOptions.preserveDocxFormatting);
-    saveBlob(`${fileName}_Original.docx`, blob);
-    setIsExporting(false);
+  const handleImportWorld = async (file: File) => {
+    const text = await file.text();
+    const data = JSON.parse(text);
+    if (data.glossary) {
+      setConfig(prev => ({ ...prev, glossary: [...prev.glossary, ...data.glossary] }));
+    }
+    if (data.characterBible) {
+      setConfig(prev => ({ ...prev, characterBible: [...prev.characterBible, ...data.characterBible] }));
+    }
   };
 
   if (isRestoring) {
@@ -467,75 +246,136 @@ const App: React.FC = () => {
     );
   }
 
+  // Upload View
+  if (stage === 'upload') {
+    return (
+      <div className="flex h-screen w-full bg-gray-100 dark:bg-gray-950">
+        <div className="flex-1 flex flex-col h-full overflow-hidden">
+          <header className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 p-4 flex justify-between items-center shadow-sm">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 bg-brand-600 rounded-lg flex items-center justify-center text-white font-serif font-bold">L</div>
+              <div>
+                <h1 className="font-serif font-bold text-gray-800 dark:text-gray-100">Lumina Editor</h1>
+                <p className="text-[10px] text-gray-400 dark:text-gray-500">Edycja korekty dla redaktorów</p>
+              </div>
+            </div>
+          </header>
+
+          <main className="flex-1 flex items-center justify-center p-8">
+            <div className="max-w-xl w-full">
+              <div
+                onDrop={handleDrop}
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onClick={() => fileInputRef.current?.click()}
+                className={`
+                  border-2 border-dashed rounded-2xl p-12 text-center cursor-pointer transition-all
+                  ${isDragging 
+                    ? 'border-brand-500 bg-brand-50 dark:bg-brand-900/20' 
+                    : 'border-gray-300 dark:border-gray-700 hover:border-brand-400 hover:bg-gray-50 dark:hover:bg-gray-900'
+                  }
+                `}
+              >
+                <div className="w-16 h-16 mx-auto mb-4 bg-brand-100 dark:bg-brand-900/50 rounded-full flex items-center justify-center">
+                  <FileText className="w-8 h-8 text-brand-600 dark:text-brand-400" />
+                </div>
+                <h2 className="text-xl font-serif font-bold text-gray-800 dark:text-gray-100 mb-2">
+                  Importuj plik .lsf
+                </h2>
+                <p className="text-gray-500 dark:text-gray-400 mb-4">
+                  Przeciągnij plik Lumina Scan File tutaj lub kliknij aby wybrać
+                </p>
+                <p className="text-xs text-gray-400 dark:text-gray-500">
+                  Plik .lsf zawiera wyniki analizy do przeglądu i edycji
+                </p>
+
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".lsf"
+                  onChange={handleFileSelect}
+                  className="hidden"
+                />
+              </div>
+
+              {importError && (
+                <div className="mt-4 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg flex items-center gap-3">
+                  <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
+                  <p className="text-sm text-red-600 dark:text-red-400">{importError}</p>
+                </div>
+              )}
+
+              <div className="mt-8 grid grid-cols-3 gap-4 text-center">
+                <div className="bg-white dark:bg-gray-900 rounded-xl p-4 border border-gray-200 dark:border-gray-800">
+                  <CheckCircle2 className="w-6 h-6 mx-auto mb-2 text-emerald-500" />
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Przeglądaj poprawki</p>
+                </div>
+                <div className="bg-white dark:bg-gray-900 rounded-xl p-4 border border-gray-200 dark:border-gray-800">
+                  <BarChart3 className="w-6 h-6 mx-auto mb-2 text-blue-500" />
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Zatwierdź lub odrzuć</p>
+                </div>
+                <div className="bg-white dark:bg-gray-900 rounded-xl p-4 border border-gray-200 dark:border-gray-800">
+                  <Upload className="w-6 h-6 mx-auto mb-2 text-brand-500" />
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Eksportuj DOCX</p>
+                </div>
+              </div>
+            </div>
+          </main>
+        </div>
+      </div>
+    );
+  }
+
+  // Review View
   return (
     <div className="flex h-screen w-full bg-gray-100 dark:bg-gray-950">
-      {stage !== 'upload' && (
-        <GlossarySidebar
-          glossaryItems={config.glossary}
-          characterBible={config.characterBible}
-          onAddGlossary={(item) => setConfig(prev => ({ ...prev, glossary: [...prev.glossary, item] }))}
-          onAddCharacter={(item) => setConfig(prev => ({ ...prev, characterBible: [...(prev.characterBible || []), item] }))}
-          onRemoveGlossary={(id) => setConfig(prev => ({ ...prev, glossary: prev.glossary.filter(g => g.id !== id) }))}
-          onRemoveCharacter={(id) => setConfig(prev => ({ ...prev, characterBible: (prev.characterBible || []).filter(c => c.id !== id) }))}
-          onImportGlossary={(items) => setConfig(prev => ({ ...prev, glossary: [...prev.glossary, ...items] }))}
-          onImportBible={(items) => setConfig(prev => ({ ...prev, characterBible: [...(prev.characterBible || []), ...items] }))}
-          onExportWorld={handleExportWorld}
-          onImportWorld={handleImportWorld}
-        />
-      )}
+      <GlossarySidebar
+        glossaryItems={config.glossary}
+        characterBible={config.characterBible}
+        onAddGlossary={(item) => setConfig(prev => ({ ...prev, glossary: [...prev.glossary, item] }))}
+        onAddCharacter={(item) => setConfig(prev => ({ ...prev, characterBible: [...(prev.characterBible || []), item] }))}
+        onRemoveGlossary={(id) => setConfig(prev => ({ ...prev, glossary: prev.glossary.filter(g => g.id !== id) }))}
+        onRemoveCharacter={(id) => setConfig(prev => ({ ...prev, characterBible: (prev.characterBible || []).filter(c => c.id !== id) }))}
+        onImportGlossary={(items) => setConfig(prev => ({ ...prev, glossary: [...prev.glossary, ...items] }))}
+        onImportBible={(items) => setConfig(prev => ({ ...prev, characterBible: [...(prev.characterBible || []), ...items] }))}
+        onExportWorld={handleExportWorld}
+        onImportWorld={handleImportWorld}
+      />
 
       <div className="flex-1 flex flex-col h-full overflow-hidden">
         <Header
-          stage={stage}
+          stage={'review' as AppStage}
           fileName={fileName}
-          sessionUsage={sessionUsage}
-          estimatedTimeRemaining={estimatedTimeRemaining}
+          metadata={metadata}
           isExporting={isExporting}
           onReset={handleResetRequest}
           onExport={handleExportDocx}
-          onExportOriginal={handleExportOriginal}
         />
 
-        <main className={`flex-1 overflow-y-auto prose-scroll ${stage !== 'upload' ? 'mr-12' : ''}`}>
-          {stage === 'upload' && <FileUpload onFileLoaded={handleFileLoaded} />}
-
-          {stage === 'config' && (
-            <div className="container mx-auto p-4 animate-in fade-in duration-500">
-              <ConfigPanel
-                config={config}
-                onChange={setConfig}
-                onStart={startScan}
-                fileName={fileName}
-                charCount={rawFiles.reduce((acc, f) => acc + f.content.length, 0)}
-              />
-            </div>
-          )}
-
-          {(stage === 'processing' || stage === 'review') && (
-            <ScannerView
-              chunks={chunks}
-              currentChunkIdx={currentChunkIdx}
-              isProcessing={isProcessing}
-              processingError={processingError}
-              stage={stage}
-              onToggleProcessing={() => setIsProcessing(!isProcessing)}
-              onApproveMistake={handleApproveMistake}
-              onRejectMistake={handleRejectMistake}
-              onRevertMistake={handleRevertMistake}
-              onApproveAll={handleApproveAll}
-              onRejectAll={handleRejectAll}
-            />
-          )}
+        <main className="flex-1 overflow-y-auto prose-scroll mr-12">
+          <ScannerView
+            chunks={chunks}
+            currentChunkIdx={0}
+            isProcessing={false}
+            processingError={null}
+            stage={'review' as AppStage}
+            onToggleProcessing={() => {}}
+            onApproveMistake={handleApproveMistake}
+            onRejectMistake={handleRejectMistake}
+            onRevertMistake={handleRevertMistake}
+            onApproveAll={handleApproveAll}
+            onRejectAll={handleRejectAll}
+          />
         </main>
       </div>
 
       <ConfirmModal
         isOpen={isResetModalOpen}
-        title="Zakończyć projekt?"
-        message="Czy na pewno chcesz zakończyć ten projekt? Cały niezapisany postęp zostanie utracony bezpowrotnie."
+        title="Zamknąć projekt?"
+        message="Czy na pewno chcesz zamknąć ten projekt? Niezapisane zmiany zostaną utracone."
         onConfirm={handleConfirmReset}
         onCancel={() => setIsResetModalOpen(false)}
-        confirmLabel="Zakończ"
+        confirmLabel="Zamknij"
         isDangrous={true}
       />
     </div>
