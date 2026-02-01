@@ -446,6 +446,19 @@ const App: React.FC = () => {
     setIsExporting(false);
   };
 
+  // Export original document (without any corrections)
+  const handleExportOriginal = async () => {
+    setIsExporting(true);
+
+    // Use original text from chunks
+    const originalChunks = chunks.map(chunk => chunk.originalText);
+    const fullText = originalChunks.join('\n\n');
+
+    const blob = await generateDocxBlob(fullText, config.scanOptions.preserveDocxFormatting);
+    saveBlob(`${fileName}_Original.docx`, blob);
+    setIsExporting(false);
+  };
+
   if (isRestoring) {
     return (
       <div className="flex h-screen w-full items-center justify-center bg-gray-50 dark:bg-gray-950">
@@ -480,6 +493,7 @@ const App: React.FC = () => {
           isExporting={isExporting}
           onReset={handleResetRequest}
           onExport={handleExportDocx}
+          onExportOriginal={handleExportOriginal}
         />
 
         <main className={`flex-1 overflow-y-auto prose-scroll ${stage !== 'upload' ? 'mr-12' : ''}`}>
