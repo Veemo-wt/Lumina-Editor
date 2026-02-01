@@ -143,18 +143,104 @@ const filterRelevantContext = (text: string, glossary: GlossaryItem[], bible: Ch
 
 // Find position of mistake in the chunk text
 const findMistakePosition = (chunkText: string, originalText: string, startSearchFrom: number = 0): { start: number; end: number } => {
-    const start = chunkText.indexOf(originalText, startSearchFrom);
-    if (start === -1) {
-        // Fallback: try case-insensitive search
-        const lowerChunk = chunkText.toLowerCase();
-        const lowerOriginal = originalText.toLowerCase();
-        const fallbackStart = lowerChunk.indexOf(lowerOriginal, startSearchFrom);
-        if (fallbackStart !== -1) {
-            return { start: fallbackStart, end: fallbackStart + originalText.length };
+    const footnoteSeparator = '\n---\n';
+    const separatorIdx = chunkText.indexOf(footnoteSeparator);
+    const mainTextEnd = separatorIdx === -1 ? chunkText.length : separatorIdx;
+
+    const normalizeWithMap = (text: string) => {
+        let normalized = '';
+        const map: number[] = [];
+        let lastWasSpace = false;
+
+        for (let i = 0; i < text.length; i++) {
+            const ch = text[i];
+            if (/\s/.test(ch)) {
+                if (!lastWasSpace) {
+                    normalized += ' ';
+                    map.push(i);
+                    lastWasSpace = true;
+                }
+                continue;
+            }
+            normalized += ch.toLowerCase();
+            map.push(i);
+            lastWasSpace = false;
         }
-        return { start: 0, end: originalText.length };
+
+        return { normalized, map };
+    };
+
+    const normalizeNeedle = (text: string) => {
+        return text.replace(/\s+/g, ' ').trim().toLowerCase();
+    };
+
+    const findNormalizedInRange = (text: string, needle: string, start: number, end: number): { start: number; end: number } | null => {
+        const limited = text.slice(0, end);
+        const { normalized, map } = normalizeWithMap(limited);
+        const normalizedNeedle = normalizeNeedle(needle);
+        if (!normalizedNeedle) return null;
+
+        let startNorm = 0;
+        for (let i = 0; i < map.length; i++) {
+            if (map[i] >= start) {
+                startNorm = i;
+                break;
+            }
+        }
+
+        const foundNorm = normalized.indexOf(normalizedNeedle, startNorm);
+        if (foundNorm === -1) return null;
+
+        const startOriginal = map[foundNorm] ?? 0;
+        const endNorm = Math.min(foundNorm + normalizedNeedle.length - 1, map.length - 1);
+        const endOriginal = (map[endNorm] ?? startOriginal) + 1;
+
+        return { start: startOriginal, end: endOriginal };
+    };
+
+    const findIndexInRange = (text: string, needle: string, start: number, end: number): number => {
+        const limited = text.slice(0, end);
+        let idx = limited.indexOf(needle, start);
+        if (idx !== -1) return idx;
+
+        const lowerLimited = limited.toLowerCase();
+        const lowerNeedle = needle.toLowerCase();
+        idx = lowerLimited.indexOf(lowerNeedle, start);
+        return idx;
+    };
+
+    const safeStart = startSearchFrom < mainTextEnd ? startSearchFrom : 0;
+
+    // Prefer matching within main text (before footnotes)
+    let start = findIndexInRange(chunkText, originalText, safeStart, mainTextEnd);
+    if (start === -1 && safeStart > 0) {
+        // If mistakes arrive out of order, retry from the beginning
+        start = findIndexInRange(chunkText, originalText, 0, mainTextEnd);
     }
-    return { start, end: start + originalText.length };
+
+    if (start !== -1) {
+        return { start, end: start + originalText.length };
+    }
+
+    const normalizedMainMatch = findNormalizedInRange(chunkText, originalText, safeStart, mainTextEnd);
+    if (normalizedMainMatch) {
+        return normalizedMainMatch;
+    }
+
+    // Fallback: try the footnote section if present
+    if (separatorIdx !== -1) {
+        const footnoteStart = separatorIdx + footnoteSeparator.length;
+        start = findIndexInRange(chunkText, originalText, footnoteStart, chunkText.length);
+        if (start !== -1) {
+            return { start, end: start + originalText.length };
+        }
+        const normalizedFootnoteMatch = findNormalizedInRange(chunkText, originalText, footnoteStart, chunkText.length);
+        if (normalizedFootnoteMatch) {
+            return normalizedFootnoteMatch;
+        }
+    }
+
+    return { start: 0, end: 0 };
 };
 
 export const scanChunk = async (request: ScanRequest): Promise<ScanResult> => {

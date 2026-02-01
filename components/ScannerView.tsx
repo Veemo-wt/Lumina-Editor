@@ -590,13 +590,17 @@ const ScannerView: React.FC<ScannerViewProps> = ({
 
   // Scroll to highlighted text when mistake selected
   useEffect(() => {
-    if (selectedMistake && textDisplayRef.current) {
-      const highlight = textDisplayRef.current.querySelector('.mistake-highlight');
+    if (!selectedMistake || !textDisplayRef.current) return;
+
+    const handle = requestAnimationFrame(() => {
+      const highlight = textDisplayRef.current?.querySelector('.mistake-highlight');
       if (highlight) {
         highlight.scrollIntoView({ behavior: 'smooth', block: 'center' });
       }
-    }
-  }, [selectedMistake]);
+    });
+
+    return () => cancelAnimationFrame(handle);
+  }, [selectedMistakeId, currentPage]);
 
   // Render text with ALL mistakes highlighted, selected one more prominent
   // For approved mistakes, show the corrected text instead of original
@@ -1125,5 +1129,4 @@ const ScannerView: React.FC<ScannerViewProps> = ({
 };
 
 export default ScannerView;
-
 
