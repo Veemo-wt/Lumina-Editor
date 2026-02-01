@@ -142,6 +142,7 @@ const filterRelevantContext = (text: string, glossary: GlossaryItem[], bible: Ch
 };
 
 // Find position of mistake in the chunk text
+// Returns { start: -1, end: -1 } if not found (to distinguish from position 0)
 const findMistakePosition = (chunkText: string, originalText: string, startSearchFrom: number = 0): { start: number; end: number } => {
     const footnoteSeparator = '\n---\n';
     const separatorIdx = chunkText.indexOf(footnoteSeparator);
@@ -211,23 +212,35 @@ const findMistakePosition = (chunkText: string, originalText: string, startSearc
 
     const safeStart = startSearchFrom < mainTextEnd ? startSearchFrom : 0;
 
-    // Prefer matching within main text (before footnotes)
+    // STRATEGY 1: Try exact match from startSearchFrom
     let start = findIndexInRange(chunkText, originalText, safeStart, mainTextEnd);
-    if (start === -1 && safeStart > 0) {
-        // If mistakes arrive out of order, retry from the beginning
-        start = findIndexInRange(chunkText, originalText, 0, mainTextEnd);
-    }
-
     if (start !== -1) {
         return { start, end: start + originalText.length };
     }
 
+    // STRATEGY 2: Try exact match from beginning (AI may return mistakes out of order)
+    if (safeStart > 0) {
+        start = findIndexInRange(chunkText, originalText, 0, mainTextEnd);
+        if (start !== -1) {
+            return { start, end: start + originalText.length };
+        }
+    }
+
+    // STRATEGY 3: Try normalized match from startSearchFrom
     const normalizedMainMatch = findNormalizedInRange(chunkText, originalText, safeStart, mainTextEnd);
     if (normalizedMainMatch) {
         return normalizedMainMatch;
     }
 
-    // Fallback: try the footnote section if present
+    // STRATEGY 4: Try normalized match from beginning
+    if (safeStart > 0) {
+        const normalizedFromStart = findNormalizedInRange(chunkText, originalText, 0, mainTextEnd);
+        if (normalizedFromStart) {
+            return normalizedFromStart;
+        }
+    }
+
+    // STRATEGY 5: Fallback - try the footnote section if present
     if (separatorIdx !== -1) {
         const footnoteStart = separatorIdx + footnoteSeparator.length;
         start = findIndexInRange(chunkText, originalText, footnoteStart, chunkText.length);
@@ -240,7 +253,8 @@ const findMistakePosition = (chunkText: string, originalText: string, startSearc
         }
     }
 
-    return { start: 0, end: 0 };
+    // Not found - return -1 to indicate failure (not position 0!)
+    return { start: -1, end: -1 };
 };
 
 export const scanChunk = async (request: ScanRequest): Promise<ScanResult> => {
@@ -368,7 +382,15 @@ ${chunkText}`;
                 if (!raw.original || !raw.suggested) continue;
 
                 const position = findMistakePosition(chunkText, raw.original, lastPosition);
-                lastPosition = position.end; // Search for next mistake after this one
+
+                // Skip mistakes that couldn't be located in the text
+                if (position.start === -1) {
+                    console.warn('[ScanService] Could not locate mistake in text, skipping:', raw.original.slice(0, 50));
+                    continue;
+                }
+
+                // Only update lastPosition if we found a valid position
+                lastPosition = position.end;
 
                 const category = ['grammar', 'orthography', 'punctuation', 'style', 'gender', 'localization', 'formatting', 'other'].includes(raw.category)
                     ? raw.category as Mistake['category']
