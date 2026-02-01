@@ -218,7 +218,7 @@ const App: React.FC = () => {
       }));
       alert(`Wczytano: ${glossary.length} terminów, ${characterBible.length} postaci, ${ragEntries.length} segmentów pamięci.`);
     } catch (e) {
-      alert("Import failed. Ensure file is valid .lumina package or .json.");
+      alert("Import nie powiódł się. Upewnij się, że plik jest prawidłowym pakietem .lumina lub .json.");
     }
   };
 
