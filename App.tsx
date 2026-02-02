@@ -364,6 +364,8 @@ const App: React.FC = () => {
           fileName={fileName}
           metadata={metadata}
           isExporting={isExporting}
+          chunks={chunks}
+          config={config}
           onReset={handleResetRequest}
           onExport={handleExportDocx}
           onExportOriginal={handleExportOriginalDocx}

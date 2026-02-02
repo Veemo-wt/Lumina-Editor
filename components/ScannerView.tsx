@@ -909,7 +909,7 @@ const ScannerView: React.FC<ScannerViewProps> = ({
                 className={`w-full text-left p-3 border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors cursor-pointer ${selectedMistakeId === mistake.id ? 'bg-brand-50 dark:bg-brand-900/20 border-l-4 border-l-brand-500' : ''}`}
               >
                 <div className="flex items-start justify-between gap-2 mb-1">
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex items-center gap-1.5 flex-wrap">
                     <span className={`text-[10px] px-1.5 py-0.5 rounded border ${CATEGORY_COLORS[mistake.category]}`}>
                       {CATEGORY_LABELS[mistake.category]}
                     </span>
@@ -943,8 +943,18 @@ const ScannerView: React.FC<ScannerViewProps> = ({
                 <div className="text-sm font-medium text-red-600 dark:text-red-400 line-through mb-1">
                   {renderFormattedText(mistake.originalText.slice(0, 40))}{mistake.originalText.length > 40 ? '...' : ''}
                 </div>
-                <div className="text-sm text-green-700 dark:text-green-400">
+                <div className="text-sm text-green-700 dark:text-green-400 mb-1.5">
                   → {renderFormattedText(mistake.suggestedFix.slice(0, 40))}{mistake.suggestedFix.length > 40 ? '...' : ''}
+                </div>
+                <div
+                  className="text-[9px] text-gray-400 dark:text-gray-500 font-mono opacity-60 hover:opacity-100 transition-opacity cursor-pointer hover:text-brand-500 dark:hover:text-brand-400"
+                  title="Kliknij aby skopiować ID"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    navigator.clipboard.writeText(mistake.id);
+                  }}
+                >
+                  #{mistake.id}
                 </div>
               </div>
             ))

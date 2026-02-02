@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Download, Loader2, Trash2, Sun, Moon, CheckCircle, XCircle, Clock, ChevronDown, FileCheck, FileText } from 'lucide-react';
-import { AppStage } from '../types';
-import { LuminaScanFile } from '../utils/storage';
+import { Download, Loader2, Trash2, Sun, Moon, CheckCircle, XCircle, Clock, ChevronDown, FileCheck, FileText, MessageCircle } from 'lucide-react';
+import { AppStage, ChunkData } from '../types';
+import { LuminaScanFile, exportToLSF } from '../utils/storage';
+import FeedbackModal from './FeedbackModal';
 
 interface ExportDropdownProps {
   isExporting: boolean;
@@ -78,6 +79,8 @@ interface HeaderProps {
   fileName: string;
   metadata: LuminaScanFile['metadata'] | null;
   isExporting: boolean;
+  chunks: ChunkData[];
+  config: any;
   onReset: () => void;
   onExport: () => void;
   onExportOriginal: () => void;
@@ -88,6 +91,8 @@ const Header: React.FC<HeaderProps> = ({
   fileName,
   metadata,
   isExporting,
+  chunks,
+  config,
   onReset,
   onExport,
   onExportOriginal
@@ -101,6 +106,52 @@ const Header: React.FC<HeaderProps> = ({
     }
     return false;
   });
+  const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
+
+  // Funkcja do generowania eksportu LSF dla feedbacku
+  const getSessionData = (): LuminaScanFile | null => {
+    if (!chunks || chunks.length === 0) return null;
+
+    // Oblicz statystyki
+    let totalMistakes = 0;
+    let approvedMistakes = 0;
+    let rejectedMistakes = 0;
+    let pendingMistakes = 0;
+    let completedChunks = 0;
+
+    chunks.forEach(chunk => {
+      if (chunk.status === 'completed') completedChunks++;
+      (chunk.mistakes || []).forEach((m: any) => {
+        totalMistakes++;
+        if (m.status === 'approved') approvedMistakes++;
+        else if (m.status === 'rejected') rejectedMistakes++;
+        else pendingMistakes++;
+      });
+    });
+
+    return {
+      version: '1.0',
+      exportDate: new Date().toISOString(),
+      fileName,
+      chunks,
+      config: {
+        scanOptions: config.scanOptions,
+        glossary: config.glossary || [],
+        characterBible: config.characterBible || [],
+        chunkSize: config.chunkSize,
+        lookbackSize: config.lookbackSize,
+        chapterPattern: config.chapterPattern
+      },
+      metadata: {
+        totalMistakes,
+        approvedMistakes,
+        rejectedMistakes,
+        pendingMistakes,
+        totalChunks: chunks.length,
+        completedChunks
+      }
+    };
+  };
 
   useEffect(() => {
     if (isDark) {
@@ -144,6 +195,13 @@ const Header: React.FC<HeaderProps> = ({
 
         <div className="flex items-center gap-2">
           <button
+            onClick={() => setIsFeedbackOpen(true)}
+            className="p-2 text-gray-400 hover:text-brand-500 transition-colors rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800"
+            title="Zgłoś sugestię lub błąd"
+          >
+            <MessageCircle size={18} />
+          </button>
+          <button
             onClick={() => setIsDark(!isDark)}
             className="p-2 text-gray-400 hover:text-brand-500 transition-colors rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800"
             title={isDark ? 'Tryb jasny' : 'Tryb ciemny'}
@@ -164,6 +222,13 @@ const Header: React.FC<HeaderProps> = ({
           )}
         </div>
       </div>
+
+      <FeedbackModal
+        isOpen={isFeedbackOpen}
+        onClose={() => setIsFeedbackOpen(false)}
+        currentFile={fileName}
+        getSessionData={getSessionData}
+      />
     </header>
   );
 };
