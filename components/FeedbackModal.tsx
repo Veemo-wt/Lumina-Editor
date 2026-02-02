@@ -109,7 +109,17 @@ const FeedbackModal: React.FC<FeedbackModalProps> = ({ isOpen, onClose, currentF
         initialMistakeId
       });
     }
-  }, [isOpen, initialMistakeId, initialType]);
+
+    // Auto-fill title and description when initialMistake is provided
+    if (initialMistake && initialType === 'wrong_correction') {
+      const autoTitle = `Nietrafna poprawka: ${initialMistake.category}`;
+      const autoDesc = `Oryginał: "${initialMistake.originalText}"\nProponowana poprawka: "${initialMistake.suggestedFix}"\nPowód: ${initialMistake.reason}`;
+      console.log('🟢 Auto-filling title:', autoTitle);
+      console.log('🟢 Auto-filling description:', autoDesc);
+      setTitle(autoTitle);
+      setDescription(autoDesc);
+    }
+  }, [isOpen, initialMistakeId, initialType, initialMistake]);
 
   // Debug logging for state changes
   useEffect(() => {
@@ -301,6 +311,21 @@ const FeedbackModal: React.FC<FeedbackModalProps> = ({ isOpen, onClose, currentF
         ) : (
         /* Form */
         <form onSubmit={handleSubmit} className="p-4 space-y-4">
+          {/* Info box dla wrong_correction - pola auto-wypełnione */}
+          {type === 'wrong_correction' && mistakeId && (
+            <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-3 flex items-start gap-3">
+              <CheckCircle size={20} className="text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <div className="text-sm font-medium text-green-800 dark:text-green-300">
+                  Pola zostały automatycznie wypełnione
+                </div>
+                <div className="text-xs text-green-700 dark:text-green-400 mt-1">
+                  Szczegóły błędu (tekst oryginalny, poprawka, powód) są już dołączone. Możesz od razu wysłać zgłoszenie lub dodać własny komentarz.
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Typ zgłoszenia - ukryj gdy jest tylko jedna opcja */}
           {typeOptions.length > 1 ? (
             <div>

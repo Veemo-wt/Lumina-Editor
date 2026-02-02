@@ -12,6 +12,11 @@ export interface FeedbackData {
   userAgent?: string;
   currentFile?: string;
   sessionData?: LuminaScanFile; // Pełen eksport LSF
+  originalFileData?: { // Oryginalny plik użytkownika (base64)
+    name: string;
+    type: string;
+    data: string;
+  };
 }
 
 // Klucz do przechowywania URL serwera feedbacku
