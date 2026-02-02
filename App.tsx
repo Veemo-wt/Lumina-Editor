@@ -177,6 +177,14 @@ const App: React.FC = () => {
     })));
   };
 
+  // Reset ALL mistakes back to pending (undo all changes)
+  const handleResetAllMistakes = () => {
+    setChunks(prev => prev.map(chunk => ({
+      ...chunk,
+      mistakes: chunk.mistakes.map(m => ({ ...m, status: 'pending' as const }))
+    })));
+  };
+
   const handleApproveAll = () => {
     setChunks(prev => prev.map(chunk => ({
       ...chunk,
@@ -374,6 +382,7 @@ const App: React.FC = () => {
             onRevertMistake={handleRevertMistake}
             onApproveAll={handleApproveAll}
             onRejectAll={handleRejectAll}
+            onResetAllMistakes={handleResetAllMistakes}
           />
         </main>
       </div>

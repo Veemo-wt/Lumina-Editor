@@ -14,6 +14,7 @@ interface ScannerViewProps {
   onRevertMistake: (mistakeId: string) => void;
   onApproveAll: (mistakeIds?: string[]) => void;
   onRejectAll: (mistakeIds?: string[]) => void;
+  onResetAllMistakes: () => void;
 }
 
 const CATEGORY_LABELS: Record<Mistake['category'], string> = {
@@ -71,7 +72,8 @@ const ScannerView: React.FC<ScannerViewProps> = ({
   onRejectMistake,
   onRevertMistake,
   onApproveAll,
-  onRejectAll
+  onRejectAll,
+  onResetAllMistakes
 }) => {
   const [selectedMistakeId, setSelectedMistakeId] = useState<string | null>(null);
   const [filterCategory, setFilterCategory] = useState<Mistake['category'] | 'all'>('all');
@@ -622,14 +624,39 @@ const ScannerView: React.FC<ScannerViewProps> = ({
     // Sort mistakes by global position
     const sortedMistakes = [...pageMistakes].sort((a, b) => a.globalStart - b.globalStart);
 
-    // Filter out overlapping mistakes (keep earlier ones)
-    const nonOverlappingMistakes = sortedMistakes.reduce((acc, mistake) => {
-      const lastMistake = acc[acc.length - 1];
-      if (!lastMistake || mistake.globalStart >= lastMistake.globalEnd) {
-        acc.push(mistake);
+    // Filter out overlapping mistakes for RENDERING purposes only
+    // We need non-overlapping ranges to highlight text correctly
+    // Priority: selected mistake > approved > pending > rejected
+    // If same priority, keep the one that starts earlier
+    const nonOverlappingMistakes: typeof sortedMistakes = [];
+    for (const mistake of sortedMistakes) {
+      // Check if this mistake overlaps with any already kept mistake
+      const overlappingKept = nonOverlappingMistakes.find(kept =>
+        !(mistake.globalEnd <= kept.globalStart || mistake.globalStart >= kept.globalEnd)
+      );
+
+      if (!overlappingKept) {
+        nonOverlappingMistakes.push(mistake);
+      } else {
+        // Overlaps - decide which to keep based on priority
+        const getPriority = (m: typeof mistake) => {
+          if (m.id === selectedMistakeId) return 4; // Selected has highest priority
+          if (m.status === 'approved') return 3;
+          if (m.status === 'pending') return 2;
+          return 1; // rejected
+        };
+
+        const keptPriority = getPriority(overlappingKept);
+        const newPriority = getPriority(mistake);
+
+        if (newPriority > keptPriority) {
+          // New one has higher priority - replace
+          const idx = nonOverlappingMistakes.indexOf(overlappingKept);
+          nonOverlappingMistakes[idx] = mistake;
+        }
+        // Otherwise keep the existing one
       }
-      return acc;
-    }, [] as typeof sortedMistakes);
+    }
 
     const elements: React.ReactNode[] = [];
     let lastEnd = pageOffset.start;
@@ -800,7 +827,7 @@ const ScannerView: React.FC<ScannerViewProps> = ({
       <div className="w-80 flex-shrink-0 bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-800 flex flex-col">
         {/* Header */}
         <div className="p-4 border-b border-gray-200 dark:border-gray-800">
-          <h2 className="text-lg font-bold text-gray-800 dark:text-gray-100 mb-3">Znalezione Błędy</h2>
+          <h2 className="text-lg font-bold text-gray-800 dark:text-gray-100 mb-3">Znalezione błędy</h2>
 
           {/* Stats Row */}
           <div className="flex gap-2 text-xs mb-3">
@@ -844,18 +871,28 @@ const ScannerView: React.FC<ScannerViewProps> = ({
             <button
               onClick={() => onApproveAll(filteredMistakes.filter(m => m.status === 'pending').map(m => m.id))}
               disabled={filteredMistakes.filter(m => m.status === 'pending').length === 0}
-              className="flex-1 text-xs bg-green-50 hover:bg-green-100 text-green-700 py-2 rounded font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex-1 text-xs bg-green-50 hover:bg-green-100 text-green-700 py-2 rounded font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed dark:bg-green-900/20 dark:hover:bg-green-900/30 dark:text-green-400"
             >
               ✓ Zatwierdź ({filteredMistakes.filter(m => m.status === 'pending').length})
             </button>
             <button
               onClick={() => onRejectAll(filteredMistakes.filter(m => m.status === 'pending').map(m => m.id))}
               disabled={filteredMistakes.filter(m => m.status === 'pending').length === 0}
-              className="flex-1 text-xs bg-gray-50 hover:bg-gray-100 text-gray-600 py-2 rounded font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex-1 text-xs bg-gray-50 hover:bg-gray-100 text-gray-600 py-2 rounded font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed dark:bg-gray-800 dark:hover:bg-gray-700 dark:text-gray-400"
             >
               ✗ Odrzuć ({filteredMistakes.filter(m => m.status === 'pending').length})
             </button>
           </div>
+          {/* Reset button - shown when there are any non-pending mistakes */}
+          {allMistakes.some(m => m.status !== 'pending') && (
+            <button
+              onClick={onResetAllMistakes}
+              className="w-full text-xs bg-amber-50 hover:bg-amber-100 text-amber-700 py-2 rounded font-medium transition-colors flex items-center justify-center gap-1.5 dark:bg-amber-900/20 dark:hover:bg-amber-900/30 dark:text-amber-400"
+            >
+              <RotateCcw size={12} />
+              Resetuj wszystkie zmiany ({allMistakes.filter(m => m.status !== 'pending').length})
+            </button>
+          )}
         </div>
 
         {/* Mistakes List */}

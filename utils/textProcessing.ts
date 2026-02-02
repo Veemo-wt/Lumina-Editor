@@ -572,11 +572,14 @@ const cleanupWhitespacePdf = (text: string): string => {
 /**
  * Helper to process ArrayBuffer for PDF
  * Extracts text and joins with appropriate spacing
- * Optionally removes running heads (headers/footers)
+ * Always removes running heads (headers/footers) from top/bottom 8% of page
  */
 const parsePdfBuffer = async (buffer: ArrayBuffer, removeRunningHeads: boolean = true): Promise<string> => {
   const loadingTask = pdfjsLib.getDocument({ data: buffer });
   const pdf = await loadingTask.promise;
+
+  // Header/footer zone - always skip top and bottom 8% of page
+  const HEADER_FOOTER_ZONE = 0.08;
 
   // First pass: collect text positions to detect running heads
   const pageTexts: Array<{
@@ -612,13 +615,13 @@ const parsePdfBuffer = async (buffer: ArrayBuffer, removeRunningHeads: boolean =
   const runningHeadTexts = new Set<string>();
 
   if (removeRunningHeads && pdf.numPages > 2) {
-    // Group texts by approximate Y position (top 10% and bottom 10% of page)
+    // Group texts by approximate Y position (header/footer zones)
     const headerTexts = new Map<string, number>(); // text -> count
     const footerTexts = new Map<string, number>();
 
     for (const page of pageTexts) {
-      const topThreshold = page.height * 0.90; // top 10%
-      const bottomThreshold = page.height * 0.10; // bottom 10%
+      const topThreshold = page.height * (1 - HEADER_FOOTER_ZONE);
+      const bottomThreshold = page.height * HEADER_FOOTER_ZONE;
 
       for (const item of page.items) {
         const normalizedText = item.str.trim().toLowerCase();
@@ -656,8 +659,8 @@ const parsePdfBuffer = async (buffer: ArrayBuffer, removeRunningHeads: boolean =
     ];
 
     for (const page of pageTexts) {
-      const topThreshold = page.height * 0.90;
-      const bottomThreshold = page.height * 0.10;
+      const topThreshold = page.height * (1 - HEADER_FOOTER_ZONE);
+      const bottomThreshold = page.height * HEADER_FOOTER_ZONE;
 
       for (const item of page.items) {
         if (item.y > topThreshold || item.y < bottomThreshold) {
@@ -673,22 +676,22 @@ const parsePdfBuffer = async (buffer: ArrayBuffer, removeRunningHeads: boolean =
     }
   }
 
-  // Second pass: extract text excluding running heads
+  // Second pass: extract text, ALWAYS excluding header/footer zones
   let fullText = '';
 
   for (const page of pageTexts) {
-    const topThreshold = page.height * 0.90;
-    const bottomThreshold = page.height * 0.10;
+    const topThreshold = page.height * (1 - HEADER_FOOTER_ZONE);
+    const bottomThreshold = page.height * HEADER_FOOTER_ZONE;
 
-    // Filter items
+    // Filter items - ALWAYS remove items in header/footer zones
     const filteredItems = page.items.filter(item => {
-      if (removeRunningHeads) {
-        // Skip if in header/footer zone and matches running head
-        if (item.y > topThreshold || item.y < bottomThreshold) {
-          if (runningHeadTexts.has(item.str.trim().toLowerCase())) {
-            return false;
-          }
-        }
+      // Always skip header/footer zones (żywa pagina)
+      if (item.y > topThreshold || item.y < bottomThreshold) {
+        return false;
+      }
+      // Also skip known running head texts if they appear in main content
+      if (removeRunningHeads && runningHeadTexts.has(item.str.trim().toLowerCase())) {
+        return false;
       }
       return true;
     });
@@ -769,23 +772,80 @@ const extractTextFromIdmlStory = (xmlContent: string): string => {
   let footnoteCounter = 0;
 
   /**
-   * Extract text from a CharacterStyleRange, handling italic style
+   * Extract text from a CharacterStyleRange, handling bold and italic styles
    */
+  // Helper to clean InDesign special characters from content
+  const cleanContent = (raw: string): string => {
+    return raw
+      .replace(/\uFEFF/g, '') // BOM / Zero-width no-break space
+      .replace(/\u00A0/g, ' ') // NBSP -> regular space
+      .replace(/\u2002/g, ' ') // En Space -> regular space
+      .replace(/\u2003/g, ' ') // Em Space -> regular space
+      .replace(/\u2004/g, ' ') // Three-per-em space
+      .replace(/\u2005/g, ' ') // Four-per-em space
+      .replace(/\u2006/g, ' ') // Six-per-em space
+      .replace(/\u2007/g, ' ') // Figure space
+      .replace(/\u2008/g, ' ') // Punctuation space
+      .replace(/\u2009/g, ' ') // Thin space
+      .replace(/\u200A/g, ' ') // Hair space
+      .replace(/\u202F/g, ' ') // Narrow no-break space
+      .replace(/\u205F/g, ' ') // Medium mathematical space
+      .replace(/\u3000/g, ' ') // Ideographic space
+      .replace(/\u2028/g, ' ') // Line separator -> space (within content)
+      .replace(/\u2029/g, ' ') // Paragraph separator -> space (within content)
+      .replace(/\u0003/g, '') // InDesign paragraph break (handled by Br elements)
+      .replace(/\u0004/g, ' ') // InDesign forced line break -> space
+      .replace(/\u0005/g, ' ') // InDesign column break -> space
+      .replace(/\u0006/g, ' ') // InDesign frame break -> space
+      .replace(/\u0007/g, ' ') // InDesign page break -> space
+      .replace(/\u0008/g, '') // InDesign odd page break
+      .replace(/\u0018/g, ' ') // InDesign right indent tab -> space
+      .replace(/\u0019/g, '') // InDesign indent to here
+      .replace(/\u200B/g, '') // Zero-width space
+      .replace(/\u200C/g, '') // Zero-width non-joiner
+      .replace(/\u200D/g, '') // Zero-width joiner
+      .replace(/\u00AD/g, '') // Soft hyphen
+      .replace(/\u2011/g, '-') // Non-breaking hyphen
+      .replace(/\u2010/g, '-') // Hyphen
+      .replace(/\uF8E8/g, '') // InDesign end nested style here
+      .replace(/\uF702/g, '') // InDesign auto page number
+      .replace(/\uF703/g, ''); // InDesign section marker
+  };
+
   const extractCharacterRangeText = (charRange: Element): string => {
     let text = '';
     const style = charRange.getAttribute('AppliedCharacterStyle') || '';
-    const isItalic = style.includes('Italic') || style.includes('StyleItalic');
+    const fontStyle = charRange.getAttribute('FontStyle') || '';
+
+    // Check for bold and italic
+    const isBold = style.includes('Bold') || fontStyle.includes('Bold') ||
+                   fontStyle.includes('Black') || fontStyle.includes('Heavy');
+    const isItalic = style.includes('Italic') || style.includes('StyleItalic') ||
+                     fontStyle.includes('Italic') || fontStyle.includes('Oblique');
 
     for (const child of charRange.childNodes) {
       if (child.nodeType === Node.ELEMENT_NODE) {
         const elem = child as Element;
         if (elem.tagName === 'Content') {
-          const content = elem.textContent || '';
-          if (isItalic && content.trim()) {
-            text += `*${content}*`;
-          } else {
-            text += content;
-          }
+          const rawContent = elem.textContent || '';
+          const content = cleanContent(rawContent);
+          text += content;
+        }
+      } else if (child.nodeType === Node.PROCESSING_INSTRUCTION_NODE) {
+        continue;
+      }
+    }
+
+    const trimmedText = text.trim();
+    if (trimmedText) {
+      const hasLetters = /[a-zA-ZąćęłńóśźżĄĆĘŁŃÓŚŹŻ]/.test(trimmedText);
+      if (hasLetters && (isBold || isItalic)) {
+        if (isBold && isItalic) {
+          return `***${text}***`;
+        } else if (isBold) {
+          return `**${text}**`;
+        } else if (isItalic) {
+          return `*${text}*`;
         }
       }
     }
@@ -812,7 +872,7 @@ const extractTextFromIdmlStory = (xmlContent: string): string => {
     return cleanIdmlText(footnoteText).trim();
   };
 
-  // Process each ParagraphStyleRange - each one is a paragraph
+  // Process each ParagraphStyleRange - each one is a paragraph in InDesign
   const paragraphs = doc.querySelectorAll('ParagraphStyleRange');
 
   for (const para of paragraphs) {
@@ -824,9 +884,6 @@ const extractTextFromIdmlStory = (xmlContent: string): string => {
     let currentParagraph = '';
 
     for (const charRange of children) {
-      const style = charRange.getAttribute('AppliedCharacterStyle') || '';
-      const isItalic = style.includes('Italic') || style.includes('StyleItalic');
-
       // Check if this CharacterStyleRange contains a Footnote
       const footnoteElem = charRange.querySelector('Footnote');
 
@@ -843,19 +900,42 @@ const extractTextFromIdmlStory = (xmlContent: string): string => {
           footnotes.push(`[^${footnoteCounter}]: ${footnoteContent}`);
         }
       } else {
-        // Regular character range - process children
+        // Regular character range - iterate through children to handle Content and Br in order
+        const style = charRange.getAttribute('AppliedCharacterStyle') || '';
+        const fontStyle = charRange.getAttribute('FontStyle') || '';
+
+        const isBold = style.includes('Bold') || fontStyle.includes('Bold') ||
+                       fontStyle.includes('Black') || fontStyle.includes('Heavy');
+        const isItalic = style.includes('Italic') || style.includes('StyleItalic') ||
+                         fontStyle.includes('Italic') || fontStyle.includes('Oblique');
+
+        let rangeText = '';
+
         for (const child of charRange.childNodes) {
           if (child.nodeType === Node.ELEMENT_NODE) {
             const elem = child as Element;
             if (elem.tagName === 'Content') {
-              const content = elem.textContent || '';
-              if (isItalic && content.trim()) {
-                currentParagraph += `*${content}*`;
-              } else {
-                currentParagraph += content;
-              }
+              const rawContent = elem.textContent || '';
+              rangeText += cleanContent(rawContent);
             } else if (elem.tagName === 'Br') {
-              // Br means end of paragraph - save current and start new
+              // Br means forced line break - first add accumulated text with formatting
+              if (rangeText) {
+                const hasLetters = /[a-zA-ZąćęłńóśźżĄĆĘŁŃÓŚŹŻ]/.test(rangeText.trim());
+                if (hasLetters && (isBold || isItalic)) {
+                  if (isBold && isItalic) {
+                    currentParagraph += `***${rangeText}***`;
+                  } else if (isBold) {
+                    currentParagraph += `**${rangeText}**`;
+                  } else if (isItalic) {
+                    currentParagraph += `*${rangeText}*`;
+                  }
+                } else {
+                  currentParagraph += rangeText;
+                }
+                rangeText = '';
+              }
+              // ALWAYS save current paragraph on Br (even if rangeText was empty)
+              // because Br can be in a separate CharacterStyleRange without Content
               const cleaned = cleanIdmlText(currentParagraph);
               if (cleaned.trim()) {
                 textParts.push(cleaned);
@@ -864,14 +944,32 @@ const extractTextFromIdmlStory = (xmlContent: string): string => {
             }
           }
         }
+
+        // Add remaining text from this CharacterStyleRange
+        if (rangeText) {
+          const hasLetters = /[a-zA-ZąćęłńóśźżĄĆĘŁŃÓŚŹŻ]/.test(rangeText.trim());
+          if (hasLetters && (isBold || isItalic)) {
+            if (isBold && isItalic) {
+              currentParagraph += `***${rangeText}***`;
+            } else if (isBold) {
+              currentParagraph += `**${rangeText}**`;
+            } else if (isItalic) {
+              currentParagraph += `*${rangeText}*`;
+            }
+          } else {
+            currentParagraph += rangeText;
+          }
+        }
       }
     }
 
-    // Don't forget remaining text in the paragraph
+    // End of ParagraphStyleRange = end of paragraph - ALWAYS push as separate paragraph
     const cleaned = cleanIdmlText(currentParagraph);
     if (cleaned.trim()) {
       textParts.push(cleaned);
     }
+    // Reset for next paragraph
+    currentParagraph = '';
   }
 
   // Fallback: if no paragraphs found, try Content elements directly
@@ -905,7 +1003,20 @@ const extractTextFromIdmlStory = (xmlContent: string): string => {
 const cleanIdmlText = (text: string): string => {
   return text
     // Remove InDesign special characters
-    .replace(/\uFEFF/g, '') // BOM
+    .replace(/\uFEFF/g, '') // BOM / Zero-width no-break space
+    .replace(/\u00A0/g, ' ') // NBSP -> regular space
+    .replace(/\u2002/g, ' ') // En Space -> regular space
+    .replace(/\u2003/g, ' ') // Em Space -> regular space
+    .replace(/\u2004/g, ' ') // Three-per-em space
+    .replace(/\u2005/g, ' ') // Four-per-em space
+    .replace(/\u2006/g, ' ') // Six-per-em space
+    .replace(/\u2007/g, ' ') // Figure space
+    .replace(/\u2008/g, ' ') // Punctuation space
+    .replace(/\u2009/g, ' ') // Thin space
+    .replace(/\u200A/g, ' ') // Hair space
+    .replace(/\u202F/g, ' ') // Narrow no-break space
+    .replace(/\u205F/g, ' ') // Medium mathematical space
+    .replace(/\u3000/g, ' ') // Ideographic space
     .replace(/\u2028/g, '\n') // Line separator
     .replace(/\u2029/g, '\n\n') // Paragraph separator
     .replace(/\u0003/g, '\n\n') // InDesign paragraph break
@@ -994,7 +1105,7 @@ const parseDocxBuffer = async (buffer: ArrayBuffer, preserveFormatting: boolean 
     footnotesOl.remove();
   }
 
-  const extractTextWithFormatting = (node: Node): string => {
+  const extractTextWithFormatting = (node: Node, listContext?: { type: 'ol' | 'ul'; index: number }): string => {
     let text = '';
 
     for (const child of node.childNodes) {
@@ -1026,6 +1137,16 @@ const parseDocxBuffer = async (buffer: ArrayBuffer, preserveFormatting: boolean 
           } else {
             text += extractTextWithFormatting(elem);
           }
+        } else if (tagName === 'u') {
+          // Underline - preserve as __underline__ if formatting enabled
+          if (preserveFormatting) {
+            const innerText = extractTextWithFormatting(elem);
+            if (innerText.trim()) {
+              text += `__${innerText}__`;
+            }
+          } else {
+            text += extractTextWithFormatting(elem);
+          }
         } else if (tagName === 'a' && elem.getAttribute('href')?.startsWith('#footnote-')) {
           // Footnote reference
           const footnoteId = elem.getAttribute('href')?.replace('#footnote-', '') || '';
@@ -1043,11 +1164,27 @@ const parseDocxBuffer = async (buffer: ArrayBuffer, preserveFormatting: boolean 
               text += `[${footnoteNum}]`;
             }
           }
-        } else if (tagName === 'ol' || tagName === 'ul') {
-          // Skip footnotes list (already processed)
+        } else if (tagName === 'ol') {
+          // Ordered list - skip if it's footnotes list
           if (!elem.querySelector('li[id^="footnote-"]')) {
-            text += extractTextWithFormatting(elem);
+            const items = elem.querySelectorAll(':scope > li');
+            items.forEach((li, idx) => {
+              const itemText = extractTextWithFormatting(li, { type: 'ol', index: idx + 1 }).trim();
+              text += `${idx + 1}. ${itemText}\n`;
+            });
+            text += '\n';
           }
+        } else if (tagName === 'ul') {
+          // Unordered list
+          const items = elem.querySelectorAll(':scope > li');
+          items.forEach((li) => {
+            const itemText = extractTextWithFormatting(li, { type: 'ul', index: 0 }).trim();
+            text += `• ${itemText}\n`;
+          });
+          text += '\n';
+        } else if (tagName === 'li') {
+          // List item - just extract content (formatting handled by parent)
+          text += extractTextWithFormatting(elem);
         } else {
           text += extractTextWithFormatting(elem);
         }
@@ -1127,66 +1264,77 @@ export const generateDocxBlob = async (text: string, preserveFormatting: boolean
   // Parse footnotes from text
   // Supported formats:
   // - References: [^N] or [N] in text
-  // - Definitions: [^N]: content OR numbered lines after separator (---, or lines with ↑)
+  // - Definitions: [^N]: content OR numbered lines after separator (---, NOTES, ENDNOTES, PRZYPISY)
   const footnotes: Record<number, { children: Paragraph[] }> = {};
   let mainText = text;
 
-  // Try to find footnote section - multiple formats supported
+  // Try to find footnote/endnote section - multiple formats supported
   let footnotesSection = '';
 
-  // Check for --- separator first
-  const separatorIndex = text.indexOf('\n---\n');
-  if (separatorIndex !== -1) {
-    mainText = text.slice(0, separatorIndex);
-    footnotesSection = text.slice(separatorIndex + 5);
-  } else {
-    // Look for footnotes with ↑ symbol - can be in same line or separate lines
+  // Check for explicit section separators
+  const separatorPatterns = [
+    /\n---+\n/,                           // --- separator
+    /\n={3,}\n/,                          // === separator
+    /\n\*{3,}\n/,                         // *** separator
+    /\n(?:NOTES?|ENDNOTES?|FOOTNOTES?|PRZYPISY|UWAGI)\s*\n/i,  // Section headers
+  ];
+
+  for (const pattern of separatorPatterns) {
+    const match = text.match(pattern);
+    if (match && match.index !== undefined) {
+      mainText = text.slice(0, match.index);
+      footnotesSection = text.slice(match.index + match[0].length);
+      break;
+    }
+  }
+
+  // If no explicit separator, look for endnotes section at the end
+  if (!footnotesSection) {
+    // Check if text ends with multiple numbered definitions like [1]: or 1. or 1)
+    const lines = text.split('\n');
+    let endnoteStartIdx = -1;
+    let consecutiveEndnotes = 0;
+
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const line = lines[i].trim();
+      // Match patterns: [1]: content, [^1]: content, 1. content (at start), 1) content
+      if (/^(\[\^?\d+\]:|^\d+[.)]\s)/.test(line)) {
+        consecutiveEndnotes++;
+        endnoteStartIdx = i;
+      } else if (line.length === 0) {
+        // Empty line - continue looking
+        continue;
+      } else if (consecutiveEndnotes >= 2) {
+        // Found at least 2 consecutive endnotes, this is likely the section
+        break;
+      } else {
+        // Non-endnote line - reset
+        consecutiveEndnotes = 0;
+        endnoteStartIdx = -1;
+      }
+    }
+
+    if (endnoteStartIdx >= 0 && consecutiveEndnotes >= 2) {
+      mainText = lines.slice(0, endnoteStartIdx).join('\n');
+      footnotesSection = lines.slice(endnoteStartIdx).join('\n');
+    }
+  }
+
+  // Fallback: look for ↑ symbols (legacy format)
+  if (!footnotesSection) {
     const arrowCount = (text.match(/↑/g) || []).length;
 
     if (arrowCount >= 1) {
       const firstArrowIdx = text.indexOf('↑');
       if (firstArrowIdx > 0) {
-        let foundSplit = -1;
+        // Find a good split point - look for paragraph break before first ↑
+        const textBeforeArrow = text.slice(0, firstArrowIdx);
+        const lastParaBreak = textBeforeArrow.lastIndexOf('\n\n');
 
-        for (let i = firstArrowIdx - 1; i >= 0; i--) {
-          const char = text[i];
-          if (char === '.' || char === '!' || char === '?') {
-            const afterSentence = text.slice(i + 1, firstArrowIdx).trim();
-            if (afterSentence.length > 0 && afterSentence.length < 200) {
-              foundSplit = i + 1;
-              break;
-            }
-          }
-          if (i > 0 && text[i] === '\n' && text[i-1] === '\n') {
-            foundSplit = i + 1;
-            break;
-          }
+        if (lastParaBreak > 0 && (firstArrowIdx - lastParaBreak) < 500) {
+          mainText = text.slice(0, lastParaBreak).trim();
+          footnotesSection = text.slice(lastParaBreak).trim();
         }
-
-        if (foundSplit > 0) {
-          mainText = text.slice(0, foundSplit).trim();
-          footnotesSection = text.slice(foundSplit).trim();
-        }
-      }
-    }
-
-    // Fallback: look for lines with ↑ at end
-    if (!footnotesSection) {
-      const lines = text.split('\n');
-      let footnoteStartIdx = lines.length;
-
-      for (let i = lines.length - 1; i >= 0; i--) {
-        const line = lines[i].trim();
-        if (line.includes('↑') || /^\d+[\.\)]\s/.test(line) || /^\[\^?\d+\]/.test(line)) {
-          footnoteStartIdx = i;
-        } else if (line.length > 0) {
-          break;
-        }
-      }
-
-      if (footnoteStartIdx < lines.length) {
-        mainText = lines.slice(0, footnoteStartIdx).join('\n');
-        footnotesSection = lines.slice(footnoteStartIdx).join('\n');
       }
     }
   }
@@ -1542,65 +1690,67 @@ export const detectFormattingErrors = (text: string, indesignImport: boolean = f
 
     // ===== MISSING SPACES =====
 
-    // No space after comma (followed by letter, not quote or newline)
-    // BUT NOT if followed by newline
+    // No space after comma (followed by letter, not quote or newline or NBSP)
+    // BUT NOT if followed by newline or NBSP
     {
-      regex: /,(?!\n)([a-zA-ZąćęłńóśźżĄĆĘŁŃÓŚŹŻ])/g,
+      regex: /,(?![\n\u00A0\s])([a-zA-ZąćęłńóśźżĄĆĘŁŃÓŚŹŻ])/g,
       reason: 'Brak spacji po przecinku',
       fix: (m) => ', ' + m.slice(1)
     },
     // No space after period (followed by capital letter - new sentence)
-    // BUT NOT if followed by newline (paragraph break)
+    // BUT NOT if followed by newline, NBSP, or another period (ellipsis)
     {
-      regex: /\.(?!\n)([A-ZĄĆĘŁŃÓŚŹŻ])/g,
+      regex: /\.(?![\n\u00A0\s\.])([A-ZĄĆĘŁŃÓŚŹŻ])/g,
       reason: 'Brak spacji po kropce',
       fix: (m) => '. ' + m.slice(1)
     },
     // No space after exclamation mark (followed by capital)
-    // BUT NOT if followed by newline
+    // BUT NOT if followed by newline or NBSP
     {
-      regex: /!(?!\n)([A-ZĄĆĘŁŃÓŚŹŻ])/g,
+      regex: /!(?![\n\u00A0\s])([A-ZĄĆĘŁŃÓŚŹŻ])/g,
       reason: 'Brak spacji po wykrzykniku',
       fix: (m) => '! ' + m.slice(1)
     },
     // No space after question mark (followed by capital)
-    // BUT NOT if followed by newline
+    // BUT NOT if followed by newline or NBSP
     {
-      regex: /\?(?!\n)([A-ZĄĆĘŁŃÓŚŹŻ])/g,
+      regex: /\?(?![\n\u00A0\s])([A-ZĄĆĘŁŃÓŚŹŻ])/g,
       reason: 'Brak spacji po znaku zapytania',
       fix: (m) => '? ' + m.slice(1)
     },
     // No space after colon (followed by letter, not in time format)
-    // BUT NOT if followed by newline
+    // BUT NOT if followed by newline or NBSP
     {
-      regex: /:(?!\n)([a-zA-ZąćęłńóśźżĄĆĘŁŃÓŚŹŻ])/g,
+      regex: /:(?![\n\u00A0\s])([a-zA-ZąćęłńóśźżĄĆĘŁŃÓŚŹŻ])/g,
       reason: 'Brak spacji po dwukropku',
       fix: (m) => ': ' + m.slice(1)
     },
     // No space after semicolon
-    // BUT NOT if followed by newline
+    // BUT NOT if followed by newline or NBSP
     {
-      regex: /;(?!\n)([a-zA-ZąćęłńóśźżĄĆĘŁŃÓŚŹŻ])/g,
+      regex: /;(?![\n\u00A0\s])([a-zA-ZąćęłńóśźżĄĆĘŁŃÓŚŹŻ])/g,
       reason: 'Brak spacji po średniku',
       fix: (m) => '; ' + m.slice(1)
     },
     // No space after closing parenthesis (followed by letter)
-    // BUT NOT if followed by newline
+    // BUT NOT if followed by newline or NBSP
     {
-      regex: /\)(?!\n)([a-zA-ZąćęłńóśźżĄĆĘŁŃÓŚŹŻ])/g,
+      regex: /\)(?![\n\u00A0\s])([a-zA-ZąćęłńóśźżĄĆĘŁŃÓŚŹŻ])/g,
       reason: 'Brak spacji po nawiasie zamykającym',
       fix: (m) => ') ' + m.slice(1)
     },
 
     // ===== POLISH QUOTATION MARKS =====
+    // Note: French quotes «» are left as-is (valid in some contexts)
+    // Note: Single quotes '' are left as-is (too many false positives with apostrophes)
 
-    // English quotes at start -> Polish lower quote „
+    // English double quotes at start -> Polish lower quote „
     {
       regex: /"([a-zA-ZąćęłńóśźżĄĆĘŁŃÓŚŹŻ])/g,
       reason: 'Angielski cudzysłów - użyj polskiego „',
       fix: (m) => '„' + m.slice(1)
     },
-    // English quotes at end -> Polish upper quote "
+    // English double quotes at end -> Polish upper quote "
     {
       regex: /([a-zA-ZąćęłńóśźżĄĆĘŁŃÓŚŹŻ.,!?])"/g,
       reason: 'Angielski cudzysłów - użyj polskiego "',
@@ -1618,6 +1768,7 @@ export const detectFormattingErrors = (text: string, indesignImport: boolean = f
       reason: 'Spacja przed cudzysłowiem zamykającym',
       fix: () => '"'
     },
+
 
     // ===== POLISH DIALOGUE DASHES =====
 
@@ -1725,6 +1876,7 @@ export const detectFormattingErrors = (text: string, indesignImport: boolean = f
     }
   }
 
+
   // Sort by position
   mistakes.sort((a, b) => a.position.start - b.position.start);
 
@@ -1740,4 +1892,3 @@ export const detectFormattingErrors = (text: string, indesignImport: boolean = f
 
   return filtered;
 };
-
