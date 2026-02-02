@@ -1,16 +1,17 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Download, Loader2, Trash2, Sun, Moon, CheckCircle, XCircle, Clock, ChevronDown, FileCheck, FileText, MessageCircle } from 'lucide-react';
+import { Download, Loader2, Trash2, Sun, Moon, CheckCircle, XCircle, Clock, ChevronDown, FileCheck, FileText, MessageCircle, Share2 } from 'lucide-react';
 import { AppStage, ChunkData } from '../types';
-import { LuminaScanFile, exportToLSF } from '../utils/storage';
+import { LuminaScanFile } from '../utils/storage';
 import FeedbackModal from './FeedbackModal';
 
 interface ExportDropdownProps {
   isExporting: boolean;
   onExport: () => void;
   onExportOriginal: () => void;
+  onExportLSF: () => void;
 }
 
-const ExportDropdown: React.FC<ExportDropdownProps> = ({ isExporting, onExport, onExportOriginal }) => {
+const ExportDropdown: React.FC<ExportDropdownProps> = ({ isExporting, onExport, onExportOriginal, onExportLSF }) => {
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -32,6 +33,11 @@ const ExportDropdown: React.FC<ExportDropdownProps> = ({ isExporting, onExport, 
   const handleExportOriginal = () => {
     setIsOpen(false);
     onExportOriginal();
+  };
+
+  const handleExportLSF = () => {
+    setIsOpen(false);
+    onExportLSF();
   };
 
   return (
@@ -68,6 +74,17 @@ const ExportDropdown: React.FC<ExportDropdownProps> = ({ isExporting, onExport, 
               <div className="text-xs text-gray-500 dark:text-gray-400">DOCX bez poprawek</div>
             </div>
           </button>
+          <div className="border-t border-gray-200 dark:border-gray-700 my-1"></div>
+          <button
+            onClick={handleExportLSF}
+            className="w-full px-4 py-2.5 text-left text-sm flex items-center gap-3 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 transition-colors"
+          >
+            <Share2 size={16} className="text-purple-500" />
+            <div>
+              <div className="font-medium">Eksportuj sesję LSF</div>
+              <div className="text-xs text-gray-500 dark:text-gray-400">Aby wrócić do edycji później</div>
+            </div>
+          </button>
         </div>
       )}
     </div>
@@ -84,6 +101,7 @@ interface HeaderProps {
   onReset: () => void;
   onExport: () => void;
   onExportOriginal: () => void;
+  onExportLSF: () => void;
 }
 
 const Header: React.FC<HeaderProps> = ({
@@ -95,7 +113,8 @@ const Header: React.FC<HeaderProps> = ({
   config,
   onReset,
   onExport,
-  onExportOriginal
+  onExportOriginal,
+  onExportLSF
 }) => {
   const [isDark, setIsDark] = useState(() => {
     if (typeof window !== 'undefined') {
@@ -218,6 +237,7 @@ const Header: React.FC<HeaderProps> = ({
               isExporting={isExporting}
               onExport={onExport}
               onExportOriginal={onExportOriginal}
+              onExportLSF={onExportLSF}
             />
           )}
         </div>

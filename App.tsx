@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { AppStage, ChunkData, ScanOptions } from './types';
 import { saveBlob, generateDocxBlob, generateOriginalDocxBlob } from './utils/textProcessing';
-import { saveSession, loadSession, clearSession, importFromLSF, LuminaScanFile } from './utils/storage';
+import { saveSession, loadSession, clearSession, importFromLSF, exportToLSF, LuminaScanFile } from './utils/storage';
 import GlossarySidebar from './components/GlossarySidebar';
 import Header from './components/Header';
 import ScannerView from './components/ScannerView';
@@ -233,6 +233,12 @@ const App: React.FC = () => {
     setIsExporting(false);
   };
 
+  // Export session to .lsf file (to continue editing later)
+  const handleExportLSF = () => {
+    const blob = exportToLSF(fileName, chunks, config);
+    saveBlob(`${fileName}.lsf`, blob);
+  };
+
   // World package handlers (for glossary sidebar)
   const handleExportWorld = async () => {
     const worldData = {
@@ -369,6 +375,7 @@ const App: React.FC = () => {
           onReset={handleResetRequest}
           onExport={handleExportDocx}
           onExportOriginal={handleExportOriginalDocx}
+          onExportLSF={handleExportLSF}
         />
 
         <main className="flex-1 overflow-y-auto prose-scroll mr-12">

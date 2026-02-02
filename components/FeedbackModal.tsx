@@ -265,7 +265,7 @@ const FeedbackModal: React.FC<FeedbackModalProps> = ({ isOpen, onClose, currentF
                 className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 placeholder-gray-400 focus:ring-2 focus:ring-brand-500 focus:border-transparent transition-all font-mono text-sm"
               />
               <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                ID znajdziesz przy każdej poprawce w panelu po lewej stronie
+                Kliknij w ID przy błędzie aby skopiować do schowka
               </p>
             </div>
           )}
