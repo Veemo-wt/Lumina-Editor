@@ -1,6 +1,8 @@
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
-import { Play, Pause, AlertTriangle, CheckCircle2, Loader2, X, Check, ChevronLeft, ChevronRight, RotateCcw, Search, Sparkles, PenTool, Eye, BookOpen, Microscope } from 'lucide-react';
+import { Play, Pause, AlertTriangle, CheckCircle2, Loader2, X, Check, ChevronLeft, ChevronRight, RotateCcw, Search, Sparkles, PenTool, Eye, BookOpen, Microscope, MessageCircle } from 'lucide-react';
 import { ChunkData, Mistake, AppStage } from '../types';
+import FeedbackModal from './FeedbackModal';
+import { LuminaScanFile } from '../utils/storage';
 
 interface ScannerViewProps {
   chunks: ChunkData[];
@@ -15,6 +17,8 @@ interface ScannerViewProps {
   onApproveAll: (mistakeIds?: string[]) => void;
   onRejectAll: (mistakeIds?: string[]) => void;
   onResetAllMistakes: () => void;
+  fileName?: string;
+  getSessionData?: () => LuminaScanFile | null;
 }
 
 const CATEGORY_LABELS: Record<Mistake['category'], string> = {
@@ -73,7 +77,9 @@ const ScannerView: React.FC<ScannerViewProps> = ({
   onRevertMistake,
   onApproveAll,
   onRejectAll,
-  onResetAllMistakes
+  onResetAllMistakes,
+  fileName,
+  getSessionData
 }) => {
   const [selectedMistakeId, setSelectedMistakeId] = useState<string | null>(null);
   const [filterCategory, setFilterCategory] = useState<Mistake['category'] | 'all'>('all');
@@ -82,6 +88,7 @@ const ScannerView: React.FC<ScannerViewProps> = ({
   const [processingMessageIdx, setProcessingMessageIdx] = useState(0);
   const [currentPage, setCurrentPage] = useState(0);
   const [messageFading, setMessageFading] = useState(false);
+  const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
 
   // Rotate processing messages every 3.5 seconds with fade effect
   useEffect(() => {
@@ -400,7 +407,13 @@ const ScannerView: React.FC<ScannerViewProps> = ({
 
   // Selected mistake
   const selectedMistake = useMemo(() => {
-    return allMistakes.find(m => m.id === selectedMistakeId);
+    const mistake = allMistakes.find(m => m.id === selectedMistakeId);
+    console.log('🟦 selectedMistake computed:', {
+      selectedMistakeId,
+      found: !!mistake,
+      mistakeId: mistake?.id
+    });
+    return mistake;
   }, [allMistakes, selectedMistakeId]);
 
     // Combined full text from all chunks with offset tracking
@@ -822,6 +835,7 @@ const ScannerView: React.FC<ScannerViewProps> = ({
 
   // Review View
   return (
+    <>
     <div className="h-full flex">
       {/* Mistakes List Panel */}
       <div className="w-80 flex-shrink-0 bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-800 flex flex-col">
@@ -905,7 +919,11 @@ const ScannerView: React.FC<ScannerViewProps> = ({
             filteredMistakes.map((mistake) => (
               <div
                 key={mistake.id}
-                onClick={() => setSelectedMistakeId(mistake.id)}
+                onClick={() => {
+                  console.log('🟦 Selecting mistake from list:', mistake.id);
+                  console.log('🟦 Mistake details:', mistake);
+                  setSelectedMistakeId(mistake.id);
+                }}
                 className={`w-full text-left p-3 border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors cursor-pointer ${selectedMistakeId === mistake.id ? 'bg-brand-50 dark:bg-brand-900/20 border-l-4 border-l-brand-500' : ''}`}
               >
                 <div className="flex items-start justify-between gap-2 mb-1">
@@ -1020,8 +1038,9 @@ const ScannerView: React.FC<ScannerViewProps> = ({
         )}
 
         {/* Mistake Detail Card */}
-        {selectedMistake && (
+        {selectedMistake ? (
           <div className="p-4 bg-gray-50 dark:bg-gray-800/50 border-b border-gray-200 dark:border-gray-700">
+            {console.log('🟦 Rendering mistake detail card for:', selectedMistake.id)}
             <div className="max-w-3xl mx-auto bg-white dark:bg-gray-900 rounded-xl p-4 shadow-sm border border-gray-200 dark:border-gray-700">
               <div className="flex items-center gap-2 mb-3">
                 <span className={`text-xs px-2 py-1 rounded border ${CATEGORY_COLORS[selectedMistake.category]}`}>
@@ -1060,8 +1079,35 @@ const ScannerView: React.FC<ScannerViewProps> = ({
               <div className="mt-3 text-sm text-gray-600 dark:text-gray-400">
                 <span className="font-medium">Powód: </span>{selectedMistake.reason}
               </div>
+
+              {/* Report wrong correction button */}
+              <div className="mt-3 pt-3 border-t border-gray-100 dark:border-gray-800">
+                {console.log('🟦 Rendering "Zgłoś nietrafną poprawkę" button for mistake:', selectedMistake.id)}
+                <button
+                  onClick={() => {
+                    console.log('🔵 === Opening Feedback Modal from ScannerView ===');
+                    console.log('🔵 selectedMistake:', selectedMistake);
+                    console.log('🔵 selectedMistake.id:', selectedMistake?.id);
+                    console.log('🔵 selectedMistakeId state:', selectedMistakeId);
+                    console.log('🔵 Will pass to modal:', {
+                      initialMistakeId: selectedMistake.id,
+                      initialType: 'wrong_correction'
+                    });
+                    setIsFeedbackOpen(true);
+                  }}
+                  className="flex items-center gap-2 text-xs text-gray-500 hover:text-orange-500 dark:text-gray-400 dark:hover:text-orange-400 transition-colors border border-gray-200 dark:border-gray-700 hover:border-orange-500 dark:hover:border-orange-400 px-3 py-2 rounded-lg"
+                  title="Zgłoś nietrafną poprawkę"
+                >
+                  <MessageCircle size={14} />
+                  Zgłoś nietrafną poprawkę
+                </button>
+              </div>
             </div>
           </div>
+        ) : (
+          <>
+            {console.log('⚠️ Mistake detail card NOT rendered - selectedMistake is null/undefined')}
+          </>
         )}
 
         {/* Text Display with All Mistakes Highlighted */}
@@ -1172,6 +1218,21 @@ const ScannerView: React.FC<ScannerViewProps> = ({
         </div>
       </div>
     </div>
+
+    {/* Feedback Modal for reporting wrong corrections */}
+    {selectedMistake && isFeedbackOpen && (
+      <FeedbackModal
+        key={`feedback-${selectedMistake.id}-${Date.now()}`}
+        isOpen={true}
+        onClose={() => setIsFeedbackOpen(false)}
+        currentFile={fileName}
+        getSessionData={getSessionData}
+        initialMistakeId={selectedMistake.id}
+        initialType="wrong_correction"
+        initialMistake={selectedMistake}
+      />
+    )}
+    </>
   );
 };
 

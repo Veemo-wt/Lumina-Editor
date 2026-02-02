@@ -239,6 +239,50 @@ const App: React.FC = () => {
     saveBlob(`${fileName}.lsf`, blob);
   };
 
+  // Get session data for feedback
+  const getSessionData = (): LuminaScanFile | null => {
+    if (!chunks || chunks.length === 0) return null;
+
+    let totalMistakes = 0;
+    let approvedMistakes = 0;
+    let rejectedMistakes = 0;
+    let pendingMistakes = 0;
+    let completedChunks = 0;
+
+    chunks.forEach(chunk => {
+      if (chunk.status === 'completed') completedChunks++;
+      (chunk.mistakes || []).forEach((m: any) => {
+        totalMistakes++;
+        if (m.status === 'approved') approvedMistakes++;
+        else if (m.status === 'rejected') rejectedMistakes++;
+        else pendingMistakes++;
+      });
+    });
+
+    return {
+      version: '1.0',
+      exportDate: new Date().toISOString(),
+      fileName,
+      chunks,
+      config: {
+        scanOptions: config.scanOptions,
+        glossary: config.glossary || [],
+        characterBible: config.characterBible || [],
+        chunkSize: config.chunkSize,
+        lookbackSize: config.lookbackSize,
+        chapterPattern: config.chapterPattern
+      },
+      metadata: {
+        totalMistakes,
+        approvedMistakes,
+        rejectedMistakes,
+        pendingMistakes,
+        totalChunks: chunks.length,
+        completedChunks
+      }
+    };
+  };
+
   // World package handlers (for glossary sidebar)
   const handleExportWorld = async () => {
     const worldData = {
@@ -392,6 +436,8 @@ const App: React.FC = () => {
             onApproveAll={handleApproveAll}
             onRejectAll={handleRejectAll}
             onResetAllMistakes={handleResetAllMistakes}
+            fileName={fileName}
+            getSessionData={getSessionData}
           />
         </main>
       </div>
