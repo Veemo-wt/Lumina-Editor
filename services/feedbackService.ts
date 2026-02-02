@@ -19,7 +19,7 @@ const FEEDBACK_URL_KEY = 'lumina_feedback_server_url';
 const PENDING_FEEDBACK_KEY = 'lumina_pending_feedback';
 
 // Domyślny URL - można zmienić w ustawieniach
-const DEFAULT_FEEDBACK_URL = 'https://feedback.lumina-suite.tech/api/feedback';
+const DEFAULT_FEEDBACK_URL = 'https://feedback-api.lumina-suite.tech/api/feedback\n';
 
 /**
  * Pobierz aktualny URL serwera feedbacku
