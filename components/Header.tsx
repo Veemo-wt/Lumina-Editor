@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Download, Loader2, Trash2, Sun, Moon, CheckCircle, XCircle, Clock, ChevronDown, FileCheck, FileText, MessageCircle, Share2 } from 'lucide-react';
+import { Download, Loader2, Trash2, Sun, Moon, CheckCircle, XCircle, Clock, ChevronDown, FileCheck, FileText, MessageCircle, Share2, FolderOpen } from 'lucide-react';
 import { AppStage, ChunkData } from '../types';
 import { LuminaScanFile } from '../utils/storage';
 import FeedbackModal from './FeedbackModal';
@@ -94,6 +94,14 @@ const ExportDropdown: React.FC<ExportDropdownProps> = ({ isExporting, onExport, 
 interface HeaderProps {
   stage: AppStage;
   fileName: string;
+  sessionId?: string;
+  sessionName?: string;
+  sessionUsage?: {
+    promptTokens: number;
+    completionTokens: number;
+    totalCost: number;
+  };
+  estimatedTimeRemaining?: string;
   metadata: LuminaScanFile['metadata'] | null;
   isExporting: boolean;
   chunks: ChunkData[];
@@ -102,11 +110,17 @@ interface HeaderProps {
   onExport: () => void;
   onExportOriginal: () => void;
   onExportLSF: () => void;
+  onOpenSessions?: () => void;
+  onUpdateSessionName?: (name: string) => void;
 }
 
 const Header: React.FC<HeaderProps> = ({
   stage,
   fileName,
+  sessionId,
+  sessionName,
+  sessionUsage,
+  estimatedTimeRemaining,
   metadata,
   isExporting,
   chunks,
@@ -114,7 +128,9 @@ const Header: React.FC<HeaderProps> = ({
   onReset,
   onExport,
   onExportOriginal,
-  onExportLSF
+  onExportLSF,
+  onOpenSessions,
+  onUpdateSessionName
 }) => {
   const [isDark, setIsDark] = useState(() => {
     if (typeof window !== 'undefined') {
@@ -213,6 +229,15 @@ const Header: React.FC<HeaderProps> = ({
         )}
 
         <div className="flex items-center gap-2">
+          {onOpenSessions && (
+            <button
+              onClick={onOpenSessions}
+              className="p-2 text-gray-400 hover:text-brand-500 transition-colors rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800"
+              title="Zarządzaj sesjami"
+            >
+              <FolderOpen size={18} />
+            </button>
+          )}
           <button
             onClick={() => setIsFeedbackOpen(true)}
             className="p-2 text-gray-400 hover:text-brand-500 transition-colors rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800"

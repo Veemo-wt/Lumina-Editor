@@ -1,6 +1,7 @@
+import { luminaApi } from './luminaApi';
+
 export const DB_NAME = 'LuminaDB';
 export const STORE_NAME = 'session';
-const SESSION_KEY = 'autosave_v1';
 
 const openDB = (): Promise<IDBDatabase> => {
   return new Promise((resolve, reject) => {
@@ -24,47 +25,106 @@ const openDB = (): Promise<IDBDatabase> => {
   });
 };
 
-export const saveSession = async (data: any) => {
+/**
+ * Tworzy klucz sesji na podstawie sessionId
+ */
+const getSessionKey = (sessionId: string = 'default') => `session_${sessionId}`;
+
+// Server-side session storage (Cloudflare Access)
+const api = luminaApi('editor');
+
+export const saveSession = async (data: any, sessionId: string = 'default') => {
+  // 1) Try server-side storage first
+  try {
+    await api.saveState(sessionId, data);
+    // Also keep a local cache (best-effort)
+    try {
+      const db = await openDB();
+      await new Promise<void>((resolve, reject) => {
+        const tx = db.transaction(STORE_NAME, 'readwrite');
+        const store = tx.objectStore(STORE_NAME);
+        const req = store.put(data, getSessionKey(sessionId));
+        req.onsuccess = () => resolve();
+        req.onerror = () => reject(req.error);
+      });
+    } catch {
+      // ignore local cache errors
+    }
+    return;
+  } catch (e) {
+    console.warn('Failed to save session to server, falling back to IndexedDB', e);
+  }
+
+  // 2) Fallback to IndexedDB only
   try {
     const db = await openDB();
     return new Promise<void>((resolve, reject) => {
-        const tx = db.transaction(STORE_NAME, 'readwrite');
-        const store = tx.objectStore(STORE_NAME);
-        const req = store.put(data, SESSION_KEY);
-        
-        req.onsuccess = () => resolve();
-        req.onerror = () => reject(req.error);
+      const tx = db.transaction(STORE_NAME, 'readwrite');
+      const store = tx.objectStore(STORE_NAME);
+      const req = store.put(data, getSessionKey(sessionId));
+      req.onsuccess = () => resolve();
+      req.onerror = () => reject(req.error);
     });
   } catch (e) {
-    console.warn("Failed to save session to IndexedDB", e);
+    console.warn('Failed to save session to IndexedDB', e);
   }
 };
 
-export const loadSession = async (): Promise<any> => {
+export const loadSession = async (sessionId: string = 'default'): Promise<any> => {
+  // 1) Try server-side storage first
+  try {
+    const remote = await api.getState(sessionId);
+    // Write-through cache (best-effort)
+    try {
+      const db = await openDB();
+      await new Promise<void>((resolve) => {
+        const tx = db.transaction(STORE_NAME, 'readwrite');
+        const store = tx.objectStore(STORE_NAME);
+        const req = store.put(remote, getSessionKey(sessionId));
+        req.onsuccess = () => resolve();
+        req.onerror = () => resolve();
+      });
+    } catch {
+      // ignore
+    }
+    return remote;
+  } catch (e) {
+    console.warn('Failed to load session from server, falling back to IndexedDB', e);
+  }
+
+  // 2) Fallback to IndexedDB
   try {
     const db = await openDB();
     return new Promise((resolve, reject) => {
       const tx = db.transaction(STORE_NAME, 'readonly');
       const store = tx.objectStore(STORE_NAME);
-      const req = store.get(SESSION_KEY);
-      
+      const req = store.get(getSessionKey(sessionId));
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
     });
   } catch (e) {
-    console.warn("Failed to load session from IndexedDB", e);
+    console.warn('Failed to load session from IndexedDB', e);
     return null;
   }
 };
 
-export const clearSession = async () => {
-    try {
+export const clearSession = async (sessionId: string = 'default') => {
+  // 1) Try server-side delete first
+  try {
+    // backend delete removes whole session, but state clearing is enough here:
+    await api.saveState(sessionId, {});
+  } catch (e) {
+    console.warn('Failed to clear session on server', e);
+  }
+
+  // 2) Clear local cache
+  try {
     const db = await openDB();
     const tx = db.transaction(STORE_NAME, 'readwrite');
     const store = tx.objectStore(STORE_NAME);
-    store.delete(SESSION_KEY);
+    store.delete(getSessionKey(sessionId));
   } catch (e) {
-    console.error("Failed to clear session", e);
+    console.error('Failed to clear session', e);
   }
 };
 

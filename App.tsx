@@ -1,12 +1,15 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
 import { AppStage, ChunkData, ScanOptions } from './types';
 import { saveBlob, generateDocxBlob, generateOriginalDocxBlob } from './utils/textProcessing';
 import { saveSession, loadSession, clearSession, importFromLSF, exportToLSF, LuminaScanFile } from './utils/storage';
+import { registerSession, generateSessionId, getSessionInfo, updateSessionName } from './utils/sessionManager';
 import GlossarySidebar from './components/GlossarySidebar';
 import Header from './components/Header';
 import ScannerView from './components/ScannerView';
 import { Loader2, FileText, AlertCircle, CheckCircle2, Upload, BarChart3 } from 'lucide-react';
 import ConfirmModal from './components/ConfirmModal';
+import { SessionSelector } from './components/SessionSelector';
 
 // Uproszczona konfiguracja dla Editora (bez API key)
 interface EditorConfig {
@@ -41,6 +44,19 @@ const DEFAULT_CONFIG: EditorConfig = {
 type EditorStage = 'upload' | 'review';
 
 const App: React.FC = () => {
+  const { sessionId: urlSessionId } = useParams<{ sessionId?: string }>();
+  const navigate = useNavigate();
+
+  // Auto-redirect if no sessionId
+  useEffect(() => {
+    if (!urlSessionId) {
+      const newId = generateSessionId();
+      navigate(`/${newId}`, { replace: true });
+    }
+  }, [urlSessionId, navigate]);
+
+  const sessionId = urlSessionId || 'default';
+
   const [stage, setStage] = useState<EditorStage>('upload');
   const [fileName, setFileName] = useState<string>('');
   const [config, setConfig] = useState<EditorConfig>(DEFAULT_CONFIG);
@@ -48,17 +64,41 @@ const App: React.FC = () => {
   const [isExporting, setIsExporting] = useState(false);
   const [isRestoring, setIsRestoring] = useState(true);
   const [isResetModalOpen, setIsResetModalOpen] = useState(false);
+  const [isSessionSelectorOpen, setIsSessionSelectorOpen] = useState(false);
+  const [sessionName, setSessionName] = useState<string>('');
   const [importError, setImportError] = useState<string | null>(null);
   const [metadata, setMetadata] = useState<LuminaScanFile['metadata'] | null>(null);
   const [isDragging, setIsDragging] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Rejestruj sesję przy starcie
+  useEffect(() => {
+    if (sessionId && sessionId !== 'default') {
+      registerSession(sessionId, {
+        fileName,
+        totalChunks: chunks.length,
+        completedChunks: chunks.filter(c => c.status === 'completed').length
+      });
+    }
+  }, [sessionId, fileName, chunks]);
+
+  // Ładuj nazwę sesji
+  useEffect(() => {
+    if (sessionId && sessionId !== 'default') {
+      getSessionInfo(sessionId).then(sessionInfo => {
+        if (sessionInfo?.name) {
+          setSessionName(sessionInfo.name);
+        }
+      });
+    }
+  }, [sessionId]);
+
   // Restore session on load
   useEffect(() => {
     const restoreState = async () => {
       try {
-        const saved = await loadSession();
+        const saved = await loadSession(sessionId);
         if (saved && saved.stage === 'review') {
           setFileName(saved.fileName || '');
           setConfig(prev => ({
@@ -75,24 +115,33 @@ const App: React.FC = () => {
         setIsRestoring(false);
       }
     };
-    restoreState();
-  }, []);
+
+    if (sessionId) {
+      restoreState();
+    }
+  }, [sessionId]);
 
   // Auto-save session
   useEffect(() => {
-    if (isRestoring || stage === 'upload') return;
+    if (isRestoring || stage === 'upload' || !sessionId) return;
     const timer = setTimeout(() => {
-      saveSession({ stage, fileName, config, chunks, metadata });
+      saveSession({ stage, fileName, config, chunks, metadata }, sessionId);
+      // Aktualizuj metadata sesji
+      registerSession(sessionId, {
+        fileName,
+        totalChunks: chunks.length,
+        completedChunks: chunks.filter(c => c.status === 'completed').length
+      });
     }, 2000);
     return () => clearTimeout(timer);
-  }, [stage, fileName, config, chunks, metadata, isRestoring]);
+  }, [stage, fileName, config, chunks, metadata, isRestoring, sessionId]);
 
   const handleResetRequest = () => {
     setIsResetModalOpen(true);
   };
 
   const handleConfirmReset = async () => {
-    await clearSession();
+    await clearSession(sessionId);
     setStage('upload');
     setFileName('');
     setChunks([]);
@@ -100,6 +149,13 @@ const App: React.FC = () => {
     setMetadata(null);
     setImportError(null);
     setIsResetModalOpen(false);
+  };
+
+  const handleUpdateSessionName = (name: string) => {
+    if (sessionId && sessionId !== 'default') {
+      updateSessionName(sessionId, name);
+      setSessionName(name);
+    }
   };
 
   // Import .lsf file
@@ -412,6 +468,10 @@ const App: React.FC = () => {
         <Header
           stage={'review' as AppStage}
           fileName={fileName}
+          sessionId={sessionId}
+          sessionName={sessionName}
+          sessionUsage={{ promptTokens: 0, completionTokens: 0, totalCost: 0 }}
+          estimatedTimeRemaining="--:--"
           metadata={metadata}
           isExporting={isExporting}
           chunks={chunks}
@@ -420,6 +480,8 @@ const App: React.FC = () => {
           onExport={handleExportDocx}
           onExportOriginal={handleExportOriginalDocx}
           onExportLSF={handleExportLSF}
+          onOpenSessions={() => setIsSessionSelectorOpen(true)}
+          onUpdateSessionName={handleUpdateSessionName}
         />
 
         <main className="flex-1 overflow-y-auto prose-scroll mr-12">
@@ -451,6 +513,13 @@ const App: React.FC = () => {
         confirmLabel="Zamknij"
         isDangrous={true}
       />
+
+      {isSessionSelectorOpen && (
+        <SessionSelector
+          onClose={() => setIsSessionSelectorOpen(false)}
+          currentSessionId={sessionId}
+        />
+      )}
     </div>
   );
 };
