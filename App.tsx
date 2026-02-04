@@ -460,6 +460,26 @@ const App: React.FC = () => {
             </div>
           </main>
         </div>
+
+        {/* Session Selector Modal */}
+        {isSessionSelectorOpen && (
+          <SessionSelector
+            onClose={() => setIsSessionSelectorOpen(false)}
+            currentSessionId={sessionId}
+          />
+        )}
+
+        {/* Username prompt for first-time users */}
+        {showUsernamePrompt && (
+          <UsernamePrompt
+            onSubmit={(username) => {
+              console.log('💾 [Editor] Saving username:', username);
+              setUsername(username);
+              setShowUsernamePrompt(false);
+              console.log('✅ [Editor] Username saved, prompt hidden');
+            }}
+          />
+        )}
       </div>
     );
   }
