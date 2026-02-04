@@ -14,8 +14,12 @@ const jsonHeaders = { 'Content-Type': 'application/json' };
 function getHeaders(): Record<string, string> {
   const headers: Record<string, string> = { ...jsonHeaders };
   const username = getUsername();
+  console.log('🔑 [luminaApi] getUsername():', username);
   if (username) {
     headers['X-Username'] = username;
+    console.log('✅ [luminaApi] Added X-Username header:', username);
+  } else {
+    console.warn('⚠️ [luminaApi] No username in localStorage!');
   }
   return headers;
 }
