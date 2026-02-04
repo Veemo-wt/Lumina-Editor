@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
-import { Play, Pause, AlertTriangle, CheckCircle2, Loader2, X, Check, ChevronLeft, ChevronRight, RotateCcw, Search, Sparkles, PenTool, Eye, BookOpen, Microscope, MessageCircle } from 'lucide-react';
+import { Play, Pause, AlertTriangle, CheckCircle2, Loader2, X, Check, ChevronLeft, ChevronRight, RotateCcw, Search, Sparkles, PenTool, Eye, BookOpen, Microscope } from 'lucide-react';
 import { ChunkData, Mistake, AppStage } from '../types';
 import FeedbackModal from './FeedbackModal';
 import { LuminaScanFile } from '../utils/storage';
@@ -1017,6 +1017,22 @@ const ScannerView: React.FC<ScannerViewProps> = ({
                 >
                   <Check size={16} /> Zatwierdź
                 </button>
+                <button
+                  onClick={() => {
+                    console.log('🔵 === Opening Feedback Modal from ScannerView ===');
+                    console.log('🔵 selectedMistake:', selectedMistake);
+                    console.log('🔵 selectedMistake.id:', selectedMistake?.id);
+                    console.log('🔵 Will pass to modal:', {
+                      initialMistakeId: selectedMistake.id,
+                      initialType: 'wrong_correction'
+                    });
+                    setIsFeedbackOpen(true);
+                  }}
+                  className="flex items-center gap-2 px-4 py-2 bg-orange-100 hover:bg-orange-200 dark:bg-orange-900/30 dark:hover:bg-orange-900/50 text-orange-700 dark:text-orange-300 rounded-lg font-medium text-sm transition-colors"
+                  title="Zgłoś nietrafną poprawkę"
+                >
+                  <AlertTriangle size={16} /> Zgłoś błąd
+                </button>
               </div>
             )}
 
@@ -1078,29 +1094,6 @@ const ScannerView: React.FC<ScannerViewProps> = ({
 
               <div className="mt-3 text-sm text-gray-600 dark:text-gray-400">
                 <span className="font-medium">Powód: </span>{selectedMistake.reason}
-              </div>
-
-              {/* Report wrong correction button */}
-              <div className="mt-3 pt-3 border-t border-gray-100 dark:border-gray-800">
-                {console.log('🟦 Rendering "Zgłoś nietrafną poprawkę" button for mistake:', selectedMistake.id)}
-                <button
-                  onClick={() => {
-                    console.log('🔵 === Opening Feedback Modal from ScannerView ===');
-                    console.log('🔵 selectedMistake:', selectedMistake);
-                    console.log('🔵 selectedMistake.id:', selectedMistake?.id);
-                    console.log('🔵 selectedMistakeId state:', selectedMistakeId);
-                    console.log('🔵 Will pass to modal:', {
-                      initialMistakeId: selectedMistake.id,
-                      initialType: 'wrong_correction'
-                    });
-                    setIsFeedbackOpen(true);
-                  }}
-                  className="flex items-center gap-2 text-xs text-gray-500 hover:text-orange-500 dark:text-gray-400 dark:hover:text-orange-400 transition-colors border border-gray-200 dark:border-gray-700 hover:border-orange-500 dark:hover:border-orange-400 px-3 py-2 rounded-lg"
-                  title="Zgłoś nietrafną poprawkę"
-                >
-                  <MessageCircle size={14} />
-                  Zgłoś nietrafną poprawkę
-                </button>
               </div>
             </div>
           </div>

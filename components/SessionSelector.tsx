@@ -294,9 +294,9 @@ export const SessionSelector: React.FC<SessionSelectorProps> = ({ onClose, curre
           </div>
 
           {/* Username Settings */}
-          <div className="p-4 border-t border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/50">
+          <div className="p-4 border-t border-gray-200 dark:border-gray-800 bg-blue-50/50 dark:bg-blue-900/10">
           <div className="flex items-center gap-3 mb-3">
-            <Settings size={18} className="text-gray-600 dark:text-gray-400" />
+            <Settings size={18} className="text-blue-600 dark:text-blue-400" />
             <h3 className="font-semibold text-gray-800 dark:text-gray-200">Ustawienia</h3>
           </div>
 
@@ -330,9 +330,9 @@ export const SessionSelector: React.FC<SessionSelectorProps> = ({ onClose, curre
                   </button>
                 </div>
               ) : (
-                <div className="flex items-center gap-3 p-3 bg-white dark:bg-gray-700 rounded-lg border border-gray-200 dark:border-gray-600 mt-2">
-                  <div className="w-8 h-8 rounded-full bg-brand-100 dark:bg-brand-900 flex items-center justify-center flex-shrink-0">
-                    <User size={16} className="text-brand-600 dark:text-brand-400" />
+                <div className="flex items-center gap-3 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-700 mt-2">
+                  <div className="w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-800 flex items-center justify-center flex-shrink-0">
+                    <User size={16} className="text-blue-600 dark:text-blue-300" />
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="font-medium text-gray-800 dark:text-gray-200 truncate">
@@ -347,10 +347,10 @@ export const SessionSelector: React.FC<SessionSelectorProps> = ({ onClose, curre
                       setIsEditingUsername(true);
                       setUsernameInput(currentUsername);
                     }}
-                    className="p-2 text-gray-400 hover:text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-900/20 rounded-lg transition-colors"
-                    title="Zmień nazwę użytkownika"
+                    className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded transition-colors"
+                    title="Edytuj nazwę"
                   >
-                    <Edit2 size={16} />
+                    <Edit2 size={14} />
                   </button>
                 </div>
               )}
