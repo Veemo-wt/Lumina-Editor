@@ -4,12 +4,14 @@ import { AppStage, ChunkData, ScanOptions } from './types';
 import { saveBlob, generateDocxBlob, generateOriginalDocxBlob } from './utils/textProcessing';
 import { saveSession, loadSession, clearSession, importFromLSF, exportToLSF, LuminaScanFile } from './utils/storage';
 import { registerSession, generateSessionId, getSessionInfo, updateSessionName } from './utils/sessionManager';
+import { hasUsername, setUsername } from './utils/username';
 import GlossarySidebar from './components/GlossarySidebar';
 import Header from './components/Header';
 import ScannerView from './components/ScannerView';
 import { Loader2, FileText, AlertCircle, CheckCircle2, Upload, BarChart3 } from 'lucide-react';
 import ConfirmModal from './components/ConfirmModal';
 import { SessionSelector } from './components/SessionSelector';
+import UsernamePrompt from './components/UsernamePrompt';
 
 // Uproszczona konfiguracja dla Editora (bez API key)
 interface EditorConfig {
@@ -66,6 +68,7 @@ const App: React.FC = () => {
   const [isResetModalOpen, setIsResetModalOpen] = useState(false);
   const [isSessionSelectorOpen, setIsSessionSelectorOpen] = useState(false);
   const [sessionName, setSessionName] = useState<string>('');
+  const [showUsernamePrompt, setShowUsernamePrompt] = useState(!hasUsername());
   const [importError, setImportError] = useState<string | null>(null);
   const [metadata, setMetadata] = useState<LuminaScanFile['metadata'] | null>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -518,6 +521,16 @@ const App: React.FC = () => {
         <SessionSelector
           onClose={() => setIsSessionSelectorOpen(false)}
           currentSessionId={sessionId}
+        />
+      )}
+
+      {/* Username prompt for first-time users */}
+      {showUsernamePrompt && (
+        <UsernamePrompt
+          onSubmit={(username) => {
+            setUsername(username);
+            setShowUsernamePrompt(false);
+          }}
         />
       )}
     </div>
