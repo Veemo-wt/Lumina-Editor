@@ -38,12 +38,12 @@ async function request(path: string, options: RequestInit = {}) {
 
   // Set username from localStorage
   const username = getUsername();
-  console.log('🔑 [luminaApi] getUsername():', username);
+  console.log('🔑 [Scanner luminaApi] getUsername():', username);
   if (username) {
     headers.set("X-Username", username);
-    console.log('✅ [luminaApi] Added X-Username header:', username);
+    console.log('✅ [Scanner luminaApi] Added X-Username header:', username);
   } else {
-    console.warn('⚠️ [luminaApi] No username in localStorage!');
+    console.warn('⚠️ [Scanner luminaApi] No username in localStorage!');
   }
 
   // If body is FormData, do NOT set Content-Type manually
