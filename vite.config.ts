@@ -9,7 +9,6 @@ export default defineConfig(({ mode }) => {
     server: {
       port: 5173,
       host: "0.0.0.0",
-      historyApiFallback: true, // SPA routing - always serve index.html
     },
     plugins: [react()],
     define: {
