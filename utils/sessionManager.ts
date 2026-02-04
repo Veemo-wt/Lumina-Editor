@@ -17,7 +17,7 @@ export interface SessionMeta {
 }
 
 const api = luminaApi('editor');
-const MAX_SESSIONS = 10;
+const MAX_SESSIONS = 100;
 
 /**
  * Pobiera listę wszystkich sesji (z backendu)

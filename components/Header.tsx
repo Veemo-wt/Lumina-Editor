@@ -229,6 +229,7 @@ const Header: React.FC<HeaderProps> = ({
         )}
 
         <div className="flex items-center gap-2">
+          {/* Session selector always visible */}
           {onOpenSessions && (
             <button
               onClick={onOpenSessions}
