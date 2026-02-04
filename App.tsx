@@ -8,7 +8,7 @@ import { hasUsername, setUsername, getUsername } from './utils/username';
 import GlossarySidebar from './components/GlossarySidebar';
 import Header from './components/Header';
 import ScannerView from './components/ScannerView';
-import { Loader2, FileText, AlertCircle, CheckCircle2, Upload, BarChart3 } from 'lucide-react';
+import { Loader2, FileText, AlertCircle, CheckCircle2, Upload, BarChart3, FolderOpen } from 'lucide-react';
 import ConfirmModal from './components/ConfirmModal';
 import { SessionSelector } from './components/SessionSelector';
 import UsernamePrompt from './components/UsernamePrompt';
@@ -388,6 +388,15 @@ const App: React.FC = () => {
                 <p className="text-[10px] text-gray-400 dark:text-gray-500">Edycja korekty dla redaktorów</p>
               </div>
             </div>
+
+            {/* Session selector button in upload view */}
+            <button
+              onClick={() => setIsSessionSelectorOpen(true)}
+              className="p-2 text-gray-400 hover:text-brand-500 transition-colors rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800"
+              title="Zarządzaj sesjami"
+            >
+              <FolderOpen size={18} />
+            </button>
           </header>
 
           <main className="flex-1 flex items-center justify-center p-8">
