@@ -40,8 +40,10 @@ async function request(path: string, options: RequestInit = {}) {
   const username = getUsername();
   console.log('🔑 [Scanner luminaApi] getUsername():', username);
   if (username) {
-    headers.set("X-Username", username);
-    console.log('✅ [Scanner luminaApi] Added X-Username header:', username);
+    // Encode username to base64 to avoid non-ISO-8859-1 character issues (e.g., Polish "Michał")
+    const encodedUsername = btoa(encodeURIComponent(username));
+    headers.set("X-Username", encodedUsername);
+    console.log('✅ [Scanner luminaApi] Added X-Username header (base64):', encodedUsername);
   } else {
     console.warn('⚠️ [Scanner luminaApi] No username in localStorage!');
   }

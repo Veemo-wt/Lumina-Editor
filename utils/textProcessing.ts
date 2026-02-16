@@ -1416,10 +1416,13 @@ export const generateDocxBlob = async (text: string, preserveFormatting: boolean
     const lines = footnotesSection.split('\n');
     let currentNum: number | null = null;
     let currentContent: string[] = [];
+    let textBeforeFirstFootnote: string[] = [];
+    let foundFirstFootnote = false;
 
     for (const line of lines) {
       const defMatch = line.match(/^\[\^?(\d+)\]:\s*(.*)$/);
       if (defMatch) {
+        foundFirstFootnote = true;
         // Save previous footnote if exists
         if (currentNum !== null && currentContent.length > 0) {
           const content = currentContent.join(' ').replace(/↑/g, '').trim();
@@ -1439,6 +1442,9 @@ export const generateDocxBlob = async (text: string, preserveFormatting: boolean
       } else if (currentNum !== null && line.trim()) {
         // Continue previous footnote content
         currentContent.push(line.replace(/↑/g, '').trim());
+      } else if (!foundFirstFootnote && line.trim()) {
+        // Text before first footnote - should be part of main text
+        textBeforeFirstFootnote.push(line);
       }
     }
     // Don't forget the last footnote
@@ -1452,6 +1458,13 @@ export const generateDocxBlob = async (text: string, preserveFormatting: boolean
           })]
         };
       }
+    }
+
+    // Add back any text that was before the first footnote
+    if (textBeforeFirstFootnote.length > 0 && Object.keys(footnotes).length > 0) {
+      const restoredText = textBeforeFirstFootnote.join('\n');
+      console.log('[Editor DOCX Export] 📝 Restored', restoredText.length, 'chars of content before first footnote');
+      mainText = mainText + '\n\n' + restoredText;
     }
 
     // Try format: content ↑ - split by ↑ symbol (legacy IDML style)
