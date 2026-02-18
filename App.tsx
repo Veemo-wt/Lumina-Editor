@@ -248,17 +248,25 @@ const App: React.FC = () => {
     })));
   };
 
-  const handleApproveAll = () => {
+  const handleApproveAll = (mistakeIds?: string[]) => {
     setChunks(prev => prev.map(chunk => ({
       ...chunk,
-      mistakes: chunk.mistakes.map(m => m.status === 'pending' ? { ...m, status: 'approved' as const } : m)
+      mistakes: chunk.mistakes.map(m => {
+        if (m.status !== 'pending') return m;
+        if (mistakeIds && !mistakeIds.includes(m.id)) return m;
+        return { ...m, status: 'approved' as const };
+      })
     })));
   };
 
-  const handleRejectAll = () => {
+  const handleRejectAll = (mistakeIds?: string[]) => {
     setChunks(prev => prev.map(chunk => ({
       ...chunk,
-      mistakes: chunk.mistakes.map(m => m.status === 'pending' ? { ...m, status: 'rejected' as const } : m)
+      mistakes: chunk.mistakes.map(m => {
+        if (m.status !== 'pending') return m;
+        if (mistakeIds && !mistakeIds.includes(m.id)) return m;
+        return { ...m, status: 'rejected' as const };
+      })
     })));
   };
 
