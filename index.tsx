@@ -2,6 +2,10 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import App from './App';
+import { initConsoleCapture } from './utils/consoleCapture';
+
+// Inicjalizuj przechwytywanie logów konsoli (do feedbacku)
+initConsoleCapture();
 
 const rootElement = document.getElementById('root');
 if (!rootElement) {

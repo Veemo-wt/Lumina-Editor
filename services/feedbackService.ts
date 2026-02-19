@@ -1,22 +1,45 @@
 // Serwis do wysyłania feedbacku na lokalne Raspberry Pi
 import { LuminaScanFile } from '../utils/storage';
+import { getUsername } from '../utils/username';
+import { getCapturedLogs, CapturedLog } from '../utils/consoleCapture';
+
+export interface DiagnosticInfo {
+  screenWidth: number;
+  screenHeight: number;
+  windowWidth: number;
+  windowHeight: number;
+  devicePixelRatio: number;
+  language: string;
+  languages: string[];
+  platform: string;
+  currentUrl: string;
+  referrer: string;
+  cookiesEnabled: boolean;
+  onLine: boolean;
+  memory?: { jsHeapSizeLimit?: number; totalJSHeapSize?: number; usedJSHeapSize?: number };
+  uptime: number;
+}
 
 export interface FeedbackData {
   type: 'bug' | 'suggestion' | 'wrong_correction' | 'other';
   title: string;
   description: string;
-  mistakeId?: string; // ID błędu przy zgłaszaniu nietrafnej poprawki
+  mistakeId?: string;
   appName: string;
   appVersion?: string;
   timestamp: string;
   userAgent?: string;
   currentFile?: string;
-  sessionData?: LuminaScanFile; // Pełen eksport LSF
-  originalFileData?: { // Oryginalny plik użytkownika (base64)
+  sessionData?: LuminaScanFile;
+  originalFileData?: {
     name: string;
     type: string;
     data: string;
   };
+  username?: string;
+  userId?: string;
+  diagnostics?: DiagnosticInfo;
+  consoleLogs?: CapturedLog[];
 }
 
 // Klucz do przechowywania URL serwera feedbacku
@@ -98,10 +121,39 @@ export const exportAllPendingFeedbacks = (): void => {
   URL.revokeObjectURL(url);
 };
 
+/**
+ * Zbiera informacje diagnostyczne z przeglądarki
+ */
+const getDiagnostics = (): DiagnosticInfo => {
+  const perf = performance?.timing;
+  const nav = performance?.getEntriesByType?.('navigation')?.[0] as PerformanceNavigationTiming | undefined;
+  return {
+    screenWidth: screen.width,
+    screenHeight: screen.height,
+    windowWidth: window.innerWidth,
+    windowHeight: window.innerHeight,
+    devicePixelRatio: window.devicePixelRatio || 1,
+    language: navigator.language,
+    languages: [...(navigator.languages || [])],
+    platform: navigator.platform,
+    currentUrl: window.location.href,
+    referrer: document.referrer || '',
+    cookiesEnabled: navigator.cookieEnabled,
+    onLine: navigator.onLine,
+    memory: (performance as any)?.memory ? {
+      jsHeapSizeLimit: (performance as any).memory.jsHeapSizeLimit,
+      totalJSHeapSize: (performance as any).memory.totalJSHeapSize,
+      usedJSHeapSize: (performance as any).memory.usedJSHeapSize,
+    } : undefined,
+    uptime: nav ? (Date.now() - nav.startTime) : (perf ? (Date.now() - perf.navigationStart) : 0),
+  };
+};
+
 export const submitFeedback = async (
   feedback: Omit<FeedbackData, 'timestamp' | 'userAgent' | 'appName'>,
   sessionData?: LuminaScanFile
 ): Promise<{ success: boolean; message: string; savedLocally?: boolean }> => {
+  const username = getUsername() || 'anonymous';
   const fullFeedback: FeedbackData = {
     ...feedback,
     appName: 'Lumina Editor',
@@ -109,6 +161,10 @@ export const submitFeedback = async (
     timestamp: new Date().toISOString(),
     userAgent: navigator.userAgent,
     sessionData,
+    username,
+    userId: username,
+    diagnostics: getDiagnostics(),
+    consoleLogs: getCapturedLogs(),
   };
 
   const feedbackUrl = getFeedbackServerUrl();
