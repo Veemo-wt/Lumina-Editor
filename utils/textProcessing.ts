@@ -1608,6 +1608,32 @@ const detectFormattingMarkers = (text: string): Array<{ start: number; end: numb
 export const detectFormattingErrors = (text: string, indesignImport: boolean = false): LocalMistake[] => {
   const mistakes: LocalMistake[] = [];
 
+  // Polish abbreviations that legitimately end with a period and can be followed by comma
+  const polishAbbreviations = [
+    'prof', 'doc', 'inż', 'red', 'dyr', 'hab', 'lek', 'med', 'mgr', 'dr',
+    'szer', 'ppor', 'por', 'kpt', 'mjr', 'płk', 'gen', 'sierż', 'plut', 'kpr',
+    'ul', 'os', 'al', 'pl',
+    'tel', 'fax',
+    'godz', 'min', 'sek',
+    'str', 'rys', 'tab', 'ryc', 'il',
+    'egz', 'wol', 'zob', 'por', 'tzw', 'tzn', 'tj', 'np', 'wg',
+    'm\\.in', 'itd', 'itp', 'pt', 'br', 'r', 'ub\\.r', 'ub',
+    'pens', 'mies',
+    'nr', 'ok', 'art', 'ust', 'pkt', 'lit', 'zł', 'gr',
+    'im', 'św', 'bł',
+    'ang', 'franc', 'niem', 'hiszp', 'wł', 'łac', 'pol',
+    'jw', 'ds', 'ws', 'ww', 'cd', 'ps',
+    'tys', 'mln', 'mld',
+  ];
+  const abbreviationRegex = new RegExp('(?:^|\\s|[({„])(' + polishAbbreviations.join('|') + ')$', 'i');
+
+  // Helper: check if text before a given position ends with a Polish abbreviation
+  const isAfterAbbreviation = (pos: number): boolean => {
+    // Get text before the period (pos points to the '.' in '.,')
+    const textBefore = text.slice(Math.max(0, pos - 20), pos);
+    return abbreviationRegex.test(textBefore);
+  };
+
   // Detect InDesign word breaks if option is enabled
   const indesignBreaks = indesignImport ? detectInDesignWordBreaks(text) : [];
 
@@ -1834,7 +1860,7 @@ export const detectFormattingErrors = (text: string, indesignImport: boolean = f
       reason: 'Podwójny znak interpunkcyjny',
       fix: (m) => m[0]
     },
-    // Comma after period (typo)
+    // Comma after period (typo) - filtered by Polish abbreviation list
     {
       regex: /\.,/g,
       reason: 'Przecinek po kropce',
@@ -1873,6 +1899,11 @@ export const detectFormattingErrors = (text: string, indesignImport: boolean = f
 
       // Skip if this overlaps with formatting markers (**bold** or *italic*)
       if (isFormattingMarker(match.index, match.index + originalText.length)) {
+        continue;
+      }
+
+      // Skip "comma after period" if preceded by a known Polish abbreviation (e.g. "zob.,", "itp.,", "r.,")
+      if (reason === 'Przecinek po kropce' && isAfterAbbreviation(match.index)) {
         continue;
       }
 
