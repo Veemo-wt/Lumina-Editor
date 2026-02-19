@@ -122,6 +122,17 @@ export const exportAllPendingFeedbacks = (): void => {
 };
 
 /**
+ * Oblicza SHA256 hash username (taki sam jak backend _hash_username)
+ */
+const hashUsername = async (username: string): Promise<string> => {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(username);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+};
+
+/**
  * Zbiera informacje diagnostyczne z przeglądarki
  */
 const getDiagnostics = (): DiagnosticInfo => {
@@ -154,6 +165,7 @@ export const submitFeedback = async (
   sessionData?: LuminaScanFile
 ): Promise<{ success: boolean; message: string; savedLocally?: boolean }> => {
   const username = getUsername() || 'anonymous';
+  const userId = await hashUsername(username);
   const fullFeedback: FeedbackData = {
     ...feedback,
     appName: 'Lumina Editor',
@@ -162,7 +174,7 @@ export const submitFeedback = async (
     userAgent: navigator.userAgent,
     sessionData,
     username,
-    userId: username,
+    userId,
     diagnostics: getDiagnostics(),
     consoleLogs: getCapturedLogs(),
   };
