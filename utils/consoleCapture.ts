@@ -9,7 +9,7 @@ export interface CapturedLog {
   timestamp: string;
 }
 
-const MAX_ENTRIES = 50;
+const MAX_ENTRIES = 500;
 const buffer: CapturedLog[] = [];
 let initialized = false;
 
@@ -36,7 +36,7 @@ export function initConsoleCapture(): void {
 
         buffer.push({
           level,
-          message: message.substring(0, 500), // limituj długość pojedynczego wpisu
+          message: message.substring(0, 1000), // limituj długość pojedynczego wpisu
           timestamp: new Date().toISOString(),
         });
 
