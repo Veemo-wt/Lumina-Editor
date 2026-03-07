@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { Play, Pause, AlertTriangle, CheckCircle2, Loader2, X, Check, ChevronLeft, ChevronRight, RotateCcw, Search, Sparkles, PenTool, Eye, BookOpen, Microscope } from 'lucide-react';
-import { ChunkData, Mistake, AppStage } from '../types';
+import { ChunkData, Mistake, MistakeSeverity, AppStage } from '../types';
 import FeedbackModal from './FeedbackModal';
 import { LuminaScanFile } from '../utils/storage';
 
@@ -43,6 +43,27 @@ const CATEGORY_COLORS: Record<Mistake['category'], string> = {
   other: 'bg-gray-100 text-gray-700 border-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700'
 };
 
+const SEVERITY_LABELS: Record<MistakeSeverity, string> = {
+  low: 'Niska',
+  medium: 'Średnia',
+  high: 'Wysoka',
+  critical: 'Krytyczna'
+};
+
+const SEVERITY_COLORS: Record<MistakeSeverity, string> = {
+  low: 'bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-800/70 dark:text-slate-300 dark:border-slate-700',
+  medium: 'bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-800',
+  high: 'bg-orange-100 text-orange-700 border-orange-200 dark:bg-orange-900/30 dark:text-orange-300 dark:border-orange-800',
+  critical: 'bg-red-100 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-300 dark:border-red-800'
+};
+
+const SEVERITY_RANK: Record<MistakeSeverity, number> = {
+  low: 1,
+  medium: 2,
+  high: 3,
+  critical: 4
+};
+
 // Funny processing messages that rotate
 const PROCESSING_MESSAGES = [
   { icon: Search, text: "Tropimy literówki..." },
@@ -83,7 +104,9 @@ const ScannerView: React.FC<ScannerViewProps> = ({
 }) => {
   const [selectedMistakeId, setSelectedMistakeId] = useState<string | null>(null);
   const [filterCategory, setFilterCategory] = useState<Mistake['category'] | 'all'>('all');
+  const [filterSeverity, setFilterSeverity] = useState<MistakeSeverity | 'all'>('all');
   const [showOnlyPending, setShowOnlyPending] = useState(true);
+  const [sortByWeight, setSortByWeight] = useState(false);
   const textDisplayRef = useRef<HTMLDivElement>(null);
   const [processingMessageIdx, setProcessingMessageIdx] = useState(0);
   const [currentPage, setCurrentPage] = useState(0);
@@ -380,22 +403,55 @@ const ScannerView: React.FC<ScannerViewProps> = ({
     return chunks.flatMap(chunk => chunk.mistakes || []);
   }, [chunks]);
 
+  const getMistakeSeverity = useCallback((mistake: Mistake): MistakeSeverity => {
+    const value = mistake.severity;
+    if (value === 'low' || value === 'medium' || value === 'high' || value === 'critical') {
+      return value;
+    }
+    return 'medium';
+  }, []);
+
+  const getMistakeConfidence = useCallback((mistake: Mistake): number => {
+    if (typeof mistake.confidence === 'number' && Number.isFinite(mistake.confidence)) {
+      return Math.max(0, Math.min(1, mistake.confidence));
+    }
+    return 0;
+  }, []);
+
+  const compareMistakes = useCallback((a: Mistake, b: Mistake) => {
+    if (sortByWeight) {
+      const bySeverity = SEVERITY_RANK[getMistakeSeverity(b)] - SEVERITY_RANK[getMistakeSeverity(a)];
+      if (bySeverity !== 0) return bySeverity;
+
+      const byConfidence = getMistakeConfidence(b) - getMistakeConfidence(a);
+      if (Math.abs(byConfidence) > 0.0001) return byConfidence;
+    }
+
+    return a.position.start - b.position.start;
+  }, [sortByWeight, getMistakeSeverity, getMistakeConfidence]);
+
   // Filter mistakes for display list
   const filteredMistakes = useMemo(() => {
-    return allMistakes.filter(m => {
+    const filtered = allMistakes.filter(m => {
       if (filterCategory !== 'all' && m.category !== filterCategory) return false;
+      if (filterSeverity !== 'all' && getMistakeSeverity(m) !== filterSeverity) return false;
       if (showOnlyPending && m.status !== 'pending') return false;
       return true;
     });
-  }, [allMistakes, filterCategory, showOnlyPending]);
+
+    return [...filtered].sort(compareMistakes);
+  }, [allMistakes, filterCategory, filterSeverity, showOnlyPending, compareMistakes, getMistakeSeverity]);
 
   // All mistakes for navigation (category filtered but NOT status filtered)
   const navigableMistakes = useMemo(() => {
-    return allMistakes.filter(m => {
+    const filtered = allMistakes.filter(m => {
       if (filterCategory !== 'all' && m.category !== filterCategory) return false;
+      if (filterSeverity !== 'all' && getMistakeSeverity(m) !== filterSeverity) return false;
       return true;
     });
-  }, [allMistakes, filterCategory]);
+
+    return [...filtered].sort(compareMistakes);
+  }, [allMistakes, filterCategory, filterSeverity, compareMistakes, getMistakeSeverity]);
 
   // Stats
   const stats = useMemo(() => {
@@ -851,26 +907,50 @@ const ScannerView: React.FC<ScannerViewProps> = ({
           </div>
 
           {/* Filters */}
-          <div className="flex gap-2 items-center">
-            <select
-              value={filterCategory}
-              onChange={(e) => setFilterCategory(e.target.value as any)}
-              className="text-xs border border-gray-200 dark:border-gray-700 rounded px-2 py-1 bg-white dark:bg-gray-800"
-            >
-              <option value="all">Wszystkie kategorie</option>
-              {Object.entries(CATEGORY_LABELS).map(([key, label]) => (
-                <option key={key} value={key}>{label}</option>
-              ))}
-            </select>
-            <label className="flex items-center gap-1 text-xs text-gray-600 dark:text-gray-400 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={showOnlyPending}
-                onChange={(e) => setShowOnlyPending(e.target.checked)}
-                className="rounded"
-              />
-              Tylko oczekujące
-            </label>
+          <div className="space-y-2">
+            <div className="flex gap-2 items-center">
+              <select
+                value={filterCategory}
+                onChange={(e) => setFilterCategory(e.target.value as any)}
+                className="text-xs border border-gray-200 dark:border-gray-700 rounded px-2 py-1 bg-white dark:bg-gray-800"
+              >
+                <option value="all">Wszystkie kategorie</option>
+                {Object.entries(CATEGORY_LABELS).map(([key, label]) => (
+                  <option key={key} value={key}>{label}</option>
+                ))}
+              </select>
+
+              <select
+                value={filterSeverity}
+                onChange={(e) => setFilterSeverity(e.target.value as MistakeSeverity | 'all')}
+                className="text-xs border border-gray-200 dark:border-gray-700 rounded px-2 py-1 bg-white dark:bg-gray-800"
+              >
+                <option value="all">Wszystkie wagi</option>
+                {Object.entries(SEVERITY_LABELS).map(([key, label]) => (
+                  <option key={key} value={key}>{label}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex items-center justify-between">
+              <label className="flex items-center gap-1 text-xs text-gray-600 dark:text-gray-400 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={showOnlyPending}
+                  onChange={(e) => setShowOnlyPending(e.target.checked)}
+                  className="rounded"
+                />
+                Tylko oczekujące
+              </label>
+
+              <button
+                onClick={() => setSortByWeight(prev => !prev)}
+                className="text-[10px] px-2 py-1 rounded border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-300"
+                title="Przełącz sortowanie listy błędów"
+              >
+                {sortByWeight ? 'Sort: waga' : 'Sort: pozycja'}
+              </button>
+            </div>
           </div>
         </div>
 
@@ -930,6 +1010,12 @@ const ScannerView: React.FC<ScannerViewProps> = ({
                   <div className="flex items-center gap-1.5 flex-wrap">
                     <span className={`text-[10px] px-1.5 py-0.5 rounded border ${CATEGORY_COLORS[mistake.category]}`}>
                       {CATEGORY_LABELS[mistake.category]}
+                    </span>
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded border ${SEVERITY_COLORS[getMistakeSeverity(mistake)]}`}>
+                      {SEVERITY_LABELS[getMistakeSeverity(mistake)]}
+                    </span>
+                    <span className="text-[10px] px-1.5 py-0.5 rounded border border-indigo-200 bg-indigo-50 text-indigo-700 dark:border-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-300">
+                      {Math.round(getMistakeConfidence(mistake) * 100)}%
                     </span>
                     {/* Show source only for formatting category */}
                     {mistake.category === 'formatting' && (
@@ -1061,6 +1147,12 @@ const ScannerView: React.FC<ScannerViewProps> = ({
               <div className="flex items-center gap-2 mb-3">
                 <span className={`text-xs px-2 py-1 rounded border ${CATEGORY_COLORS[selectedMistake.category]}`}>
                   {CATEGORY_LABELS[selectedMistake.category]}
+                </span>
+                <span className={`text-xs px-2 py-1 rounded border ${SEVERITY_COLORS[getMistakeSeverity(selectedMistake)]}`}>
+                  {SEVERITY_LABELS[getMistakeSeverity(selectedMistake)]}
+                </span>
+                <span className="text-xs px-2 py-1 rounded border border-indigo-200 bg-indigo-50 text-indigo-700 dark:border-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-300">
+                  Pewność {Math.round(getMistakeConfidence(selectedMistake) * 100)}%
                 </span>
                 {/* Show source only for formatting category */}
                 {selectedMistake.category === 'formatting' && (
@@ -1230,4 +1322,3 @@ const ScannerView: React.FC<ScannerViewProps> = ({
 };
 
 export default ScannerView;
-

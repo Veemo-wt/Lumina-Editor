@@ -57,6 +57,8 @@ export interface ProcessingStats {
   startTime: number;
 }
 
+export type MistakeSeverity = 'low' | 'medium' | 'high' | 'critical';
+
 // Błąd znaleziony przez AI lub wykrycie lokalne
 export interface Mistake {
   id: string;
@@ -69,6 +71,8 @@ export interface Mistake {
     start: number;           // Pozycja znaku we fragmencie
     end: number;
   };
+  confidence?: number;       // 0-1 jak pewna jest detekcja
+  severity?: MistakeSeverity;// Waga poprawki
   status: 'pending' | 'approved' | 'rejected';
   source: 'ai' | 'local';    // Czy wykryto przez AI czy lokalne reguły
 }
