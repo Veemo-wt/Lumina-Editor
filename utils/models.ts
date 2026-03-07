@@ -13,6 +13,15 @@ export interface ModelDef {
 export const MODELS_DB: ModelDef[] = [
   // --- GPT-5 Series (Flagship) ---
   {
+    id: 'gpt-5.4',
+    name: 'GPT-5.4',
+    input: 5.00, cachedInput: 0.50, output: 22.50,
+    maxOutput: 128000,
+    context: '1.05M',
+    desc: 'Najnowszy GPT-5.4. 1,050,000 kontekstu i 128k outputu.',
+    tags: ['balanced', 'next-gen']
+  },
+  {
     id: 'gpt-5.2',
     name: 'GPT-5.2',
     input: 1.75, cachedInput: 0.85, output: 14.00,
