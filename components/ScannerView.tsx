@@ -892,9 +892,9 @@ const ScannerView: React.FC<ScannerViewProps> = ({
   // Review View
   return (
     <>
-    <div className="h-full flex">
+    <div className="flex h-full min-h-0 overflow-hidden">
       {/* Mistakes List Panel */}
-      <div className="w-80 flex-shrink-0 bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-800 flex flex-col">
+      <div className="flex min-h-0 w-[320px] min-w-[300px] flex-shrink-0 flex-col border-r border-gray-200/90 bg-white/95 dark:border-gray-800 dark:bg-gray-950/95 xl:w-[340px]">
         {/* Header */}
         <div className="p-4 border-b border-gray-200 dark:border-gray-800">
           <h2 className="text-lg font-bold text-gray-800 dark:text-gray-100 mb-3">Znalezione błędy</h2>
@@ -908,11 +908,11 @@ const ScannerView: React.FC<ScannerViewProps> = ({
 
           {/* Filters */}
           <div className="space-y-2">
-            <div className="flex gap-2 items-center">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
               <select
                 value={filterCategory}
                 onChange={(e) => setFilterCategory(e.target.value as any)}
-                className="text-xs border border-gray-200 dark:border-gray-700 rounded px-2 py-1 bg-white dark:bg-gray-800"
+                className="w-full min-w-0 rounded border border-gray-200 bg-white px-2 py-1 text-xs dark:border-gray-700 dark:bg-gray-800"
               >
                 <option value="all">Wszystkie kategorie</option>
                 {Object.entries(CATEGORY_LABELS).map(([key, label]) => (
@@ -923,7 +923,7 @@ const ScannerView: React.FC<ScannerViewProps> = ({
               <select
                 value={filterSeverity}
                 onChange={(e) => setFilterSeverity(e.target.value as MistakeSeverity | 'all')}
-                className="text-xs border border-gray-200 dark:border-gray-700 rounded px-2 py-1 bg-white dark:bg-gray-800"
+                className="w-full min-w-0 rounded border border-gray-200 bg-white px-2 py-1 text-xs dark:border-gray-700 dark:bg-gray-800"
               >
                 <option value="all">Wszystkie wagi</option>
                 {Object.entries(SEVERITY_LABELS).map(([key, label]) => (
@@ -955,7 +955,7 @@ const ScannerView: React.FC<ScannerViewProps> = ({
         </div>
 
         {/* Bulk Actions */}
-        <div className="p-2 border-b border-gray-200 dark:border-gray-800 flex flex-col gap-2">
+        <div className="flex flex-col gap-2 border-b border-gray-200 p-3 dark:border-gray-800">
           {filterCategory !== 'all' && (
             <div className="text-[10px] text-gray-500 dark:text-gray-400 text-center">
               Działanie na: <span className="font-medium">{CATEGORY_LABELS[filterCategory]}</span>
@@ -990,7 +990,7 @@ const ScannerView: React.FC<ScannerViewProps> = ({
         </div>
 
         {/* Mistakes List */}
-        <div className="flex-1 overflow-y-auto">
+        <div className="prose-scroll min-h-0 flex-1 overflow-y-auto">
           {filteredMistakes.length === 0 ? (
             <div className="p-8 text-center text-gray-400">
               {allMistakes.length === 0 ? 'Brak znalezionych błędów' : 'Brak błędów do wyświetlenia'}
@@ -999,11 +999,7 @@ const ScannerView: React.FC<ScannerViewProps> = ({
             filteredMistakes.map((mistake) => (
               <div
                 key={mistake.id}
-                onClick={() => {
-                  console.log('🟦 Selecting mistake from list:', mistake.id);
-                  console.log('🟦 Mistake details:', mistake);
-                  setSelectedMistakeId(mistake.id);
-                }}
+                onClick={() => setSelectedMistakeId(mistake.id)}
                 className={`w-full text-left p-3 border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors cursor-pointer ${selectedMistakeId === mistake.id ? 'bg-brand-50 dark:bg-brand-900/20 border-l-4 border-l-brand-500' : ''}`}
               >
                 <div className="flex items-start justify-between gap-2 mb-1">
@@ -1067,11 +1063,11 @@ const ScannerView: React.FC<ScannerViewProps> = ({
       </div>
 
       {/* Main Content - Text Display */}
-      <div className="flex-1 flex flex-col overflow-hidden">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         {/* Selected Mistake Header */}
         {selectedMistake && (
-          <div className="p-4 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 flex items-center justify-between">
-            <div className="flex items-center gap-4">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-950">
+            <div className="flex min-w-0 flex-wrap items-center gap-3">
               <button onClick={goToPrevMistake} disabled={currentMistakeIndex <= 0} className="p-1 hover:bg-gray-100 dark:hover:bg-gray-800 rounded disabled:opacity-30" title="Poprzedni (A / ←)">
                 <ChevronLeft size={20} />
               </button>
@@ -1082,39 +1078,30 @@ const ScannerView: React.FC<ScannerViewProps> = ({
                 <ChevronRight size={20} />
               </button>
               {/* Keyboard shortcuts hint */}
-              <span className="text-[10px] text-gray-400 dark:text-gray-500 hidden md:inline-block ml-2">
+              <span className="ml-1 hidden text-[10px] text-gray-400 dark:text-gray-500 md:inline-block">
                 ← A/D → | Enter=Zatwierdź | Del=Odrzuć | R=Przywróć
               </span>
             </div>
 
             {selectedMistake.status === 'pending' && (
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 <button
                   onClick={() => { onRejectMistake(selectedMistake.id); goToNextMistake(); }}
-                  className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg font-medium text-sm transition-colors"
+                  className="flex items-center gap-2 rounded-lg bg-gray-100 px-3 py-1.5 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700 sm:px-4 sm:py-2 sm:text-sm"
                   title="Odrzuć (Backspace / Delete)"
                 >
                   <X size={16} /> Odrzuć
                 </button>
                 <button
                   onClick={() => { onApproveMistake(selectedMistake.id); goToNextMistake(); }}
-                  className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium text-sm transition-colors"
+                  className="flex items-center gap-2 rounded-lg bg-green-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-green-700 sm:px-4 sm:py-2 sm:text-sm"
                   title="Zatwierdź (Enter)"
                 >
                   <Check size={16} /> Zatwierdź
                 </button>
                 <button
-                  onClick={() => {
-                    console.log('🔵 === Opening Feedback Modal from ScannerView ===');
-                    console.log('🔵 selectedMistake:', selectedMistake);
-                    console.log('🔵 selectedMistake.id:', selectedMistake?.id);
-                    console.log('🔵 Will pass to modal:', {
-                      initialMistakeId: selectedMistake.id,
-                      initialType: 'wrong_correction'
-                    });
-                    setIsFeedbackOpen(true);
-                  }}
-                  className="flex items-center gap-2 px-4 py-2 bg-orange-100 hover:bg-orange-200 dark:bg-orange-900/30 dark:hover:bg-orange-900/50 text-orange-700 dark:text-orange-300 rounded-lg font-medium text-sm transition-colors"
+                  onClick={() => setIsFeedbackOpen(true)}
+                  className="flex items-center gap-2 rounded-lg bg-orange-100 px-3 py-1.5 text-xs font-medium text-orange-700 transition-colors hover:bg-orange-200 dark:bg-orange-900/30 dark:text-orange-300 dark:hover:bg-orange-900/50 sm:px-4 sm:py-2 sm:text-sm"
                   title="Zgłoś nietrafną poprawkę"
                 >
                   <AlertTriangle size={16} /> Zgłoś błąd
@@ -1123,13 +1110,13 @@ const ScannerView: React.FC<ScannerViewProps> = ({
             )}
 
             {selectedMistake.status !== 'pending' && (
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center gap-2.5">
                 <span className={`text-sm font-medium ${selectedMistake.status === 'approved' ? 'text-green-600' : 'text-gray-500'}`}>
                   {selectedMistake.status === 'approved' ? '✓ Zatwierdzone' : '✗ Odrzucone'}
                 </span>
                 <button
                   onClick={() => onRevertMistake(selectedMistake.id)}
-                  className="flex items-center gap-2 px-3 py-1.5 bg-amber-100 hover:bg-amber-200 dark:bg-amber-900/30 dark:hover:bg-amber-900/50 text-amber-700 dark:text-amber-300 rounded-lg font-medium text-xs transition-colors"
+                  className="flex items-center gap-2 rounded-lg bg-amber-100 px-3 py-1.5 text-xs font-medium text-amber-700 transition-colors hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-300 dark:hover:bg-amber-900/50"
                   title="Przywróć do oczekujących (R)"
                 >
                   <RotateCcw size={14} /> Przywróć
@@ -1141,10 +1128,9 @@ const ScannerView: React.FC<ScannerViewProps> = ({
 
         {/* Mistake Detail Card */}
         {selectedMistake ? (
-          <div className="p-4 bg-gray-50 dark:bg-gray-800/50 border-b border-gray-200 dark:border-gray-700">
-            {console.log('🟦 Rendering mistake detail card for:', selectedMistake.id)}
-            <div className="max-w-3xl mx-auto bg-white dark:bg-gray-900 rounded-xl p-4 shadow-sm border border-gray-200 dark:border-gray-700">
-              <div className="flex items-center gap-2 mb-3">
+          <div className="border-b border-gray-200 bg-gray-50/85 p-4 dark:border-gray-700 dark:bg-gray-900/60">
+            <div className="mx-auto max-w-4xl rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-900">
+              <div className="mb-3 flex flex-wrap items-center gap-2">
                 <span className={`text-xs px-2 py-1 rounded border ${CATEGORY_COLORS[selectedMistake.category]}`}>
                   {CATEGORY_LABELS[selectedMistake.category]}
                 </span>
@@ -1169,7 +1155,7 @@ const ScannerView: React.FC<ScannerViewProps> = ({
                 <span className="text-xs text-gray-500">Segment #{selectedMistake.chunkId + 1}</span>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                 <div>
                   <div className="text-xs font-medium text-gray-500 mb-1">Oryginał:</div>
                   <div className="text-red-600 dark:text-red-400 font-medium bg-red-50 dark:bg-red-900/20 p-2 rounded" style={{ whiteSpace: 'pre-wrap' }}>
@@ -1190,16 +1176,14 @@ const ScannerView: React.FC<ScannerViewProps> = ({
             </div>
           </div>
         ) : (
-          <>
-            {console.log('⚠️ Mistake detail card NOT rendered - selectedMistake is null/undefined')}
-          </>
+          <></>
         )}
 
         {/* Text Display with All Mistakes Highlighted */}
-        <div ref={textDisplayRef} className="flex-1 overflow-y-auto p-6 bg-gray-100 dark:bg-gray-950">
+        <div ref={textDisplayRef} className="prose-scroll min-h-0 flex-1 overflow-y-auto bg-gray-100 p-4 dark:bg-gray-950 sm:p-6">
           {chunks.length > 0 ? (
-            <div className="max-w-3xl mx-auto bg-white dark:bg-gray-900 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-800">
-              <div className="flex items-center justify-between text-xs text-gray-400 mb-4">
+            <div className="mx-auto max-w-4xl rounded-xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-900">
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-2 text-xs text-gray-400">
                 <span>
                   Pełny tekst • {allMistakes.length} {allMistakes.length === 1 ? 'błąd' : allMistakes.length < 5 ? 'błędy' : 'błędów'}
                 </span>
@@ -1307,8 +1291,7 @@ const ScannerView: React.FC<ScannerViewProps> = ({
     {/* Feedback Modal for reporting wrong corrections */}
     {selectedMistake && isFeedbackOpen && (
       <FeedbackModal
-        key={`feedback-${selectedMistake.id}-${Date.now()}`}
-        isOpen={true}
+        isOpen={isFeedbackOpen}
         onClose={() => setIsFeedbackOpen(false)}
         currentFile={fileName}
         getSessionData={getSessionData}
