@@ -67,6 +67,7 @@ const App: React.FC = () => {
   const [isRestoring, setIsRestoring] = useState(true);
   const [isResetModalOpen, setIsResetModalOpen] = useState(false);
   const [isSessionSelectorOpen, setIsSessionSelectorOpen] = useState(false);
+  const [isGlossaryOpen, setIsGlossaryOpen] = useState(true);
   const [sessionName, setSessionName] = useState<string>('');
   const [showUsernamePrompt, setShowUsernamePrompt] = useState(() => {
     const hasUser = hasUsername();
@@ -386,36 +387,40 @@ const App: React.FC = () => {
   // Upload View
   if (stage === 'upload') {
     return (
-      <div className="flex h-screen w-full bg-gray-100 dark:bg-gray-950">
-        <div className="flex-1 flex flex-col h-full overflow-hidden">
-          <header className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 p-4 flex justify-between items-center shadow-sm">
+      <div className="flex h-screen w-full overflow-hidden bg-gradient-to-b from-gray-100 via-blue-50/30 to-gray-100 dark:from-gray-950 dark:via-gray-950 dark:to-black">
+        <div className="flex h-full flex-1 flex-col overflow-hidden">
+          <header className="z-30 w-full flex-shrink-0 border-b border-gray-200/80 bg-white/90 shadow-[0_10px_30px_-24px_rgba(15,23,42,0.55)] backdrop-blur-md dark:border-gray-800 dark:bg-gray-950/95">
+            <div className="mx-auto flex w-full max-w-[1600px] items-center justify-between gap-3 px-4 py-3 lg:px-6">
             <div className="flex items-center gap-3">
-              <div className="w-8 h-8 bg-brand-600 rounded-lg flex items-center justify-center text-white font-serif font-bold">L</div>
+                <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-brand-200/80 bg-gradient-to-b from-brand-100 to-brand-200 font-serif font-bold text-brand-700 shadow-sm dark:border-brand-700/50 dark:from-brand-900/40 dark:to-brand-900/10 dark:text-brand-300">
+                  L
+                </div>
               <div>
-                <h1 className="font-serif font-bold text-gray-800 dark:text-gray-100">Lumina Editor</h1>
-                <p className="text-[10px] text-gray-400 dark:text-gray-500">Edycja korekty dla redaktorów</p>
+                  <h1 className="font-serif text-[17px] font-bold leading-tight text-gray-800 dark:text-gray-100">Lumina Editor</h1>
+                  <p className="mt-0.5 text-[10px] text-gray-400 dark:text-gray-500">Edycja korekty dla redaktorów</p>
               </div>
             </div>
 
             {/* Session selector button in upload view */}
             <button
               onClick={() => setIsSessionSelectorOpen(true)}
-              className="p-2 text-gray-400 hover:text-brand-500 transition-colors rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800"
+                className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-gray-200/80 bg-white/70 text-gray-500 transition-all duration-150 hover:border-gray-300 hover:bg-white hover:text-gray-700 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300 dark:hover:border-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-100"
               title="Zarządzaj sesjami"
             >
               <FolderOpen size={18} />
             </button>
+            </div>
           </header>
 
-          <main className="flex-1 flex items-center justify-center p-8">
-            <div className="max-w-xl w-full">
+          <main className="prose-scroll flex-1 overflow-y-auto px-4 py-6 sm:px-6 sm:py-8">
+            <div className="lt-enter lt-enter-delay-1 mx-auto w-full max-w-xl">
               <div
                 onDrop={handleDrop}
                 onDragOver={handleDragOver}
                 onDragLeave={handleDragLeave}
                 onClick={() => fileInputRef.current?.click()}
                 className={`
-                  border-2 border-dashed rounded-2xl p-12 text-center cursor-pointer transition-all
+                  border-2 border-dashed rounded-2xl p-12 text-center cursor-pointer transition-all bg-white/95 dark:bg-gray-900/95 shadow-[0_22px_60px_-40px_rgba(15,23,42,0.5)]
                   ${isDragging 
                     ? 'border-brand-500 bg-brand-50 dark:bg-brand-900/20' 
                     : 'border-gray-300 dark:border-gray-700 hover:border-brand-400 hover:bg-gray-50 dark:hover:bg-gray-900'
@@ -494,7 +499,7 @@ const App: React.FC = () => {
 
   // Review View
   return (
-    <div className="flex h-screen w-full bg-gray-100 dark:bg-gray-950">
+    <div className="flex h-screen w-full overflow-hidden bg-gradient-to-b from-gray-100 via-blue-50/30 to-gray-100 dark:from-gray-950 dark:via-gray-950 dark:to-black">
       <GlossarySidebar
         glossaryItems={config.glossary}
         characterBible={config.characterBible}
@@ -506,9 +511,11 @@ const App: React.FC = () => {
         onImportBible={(items) => setConfig(prev => ({ ...prev, characterBible: [...(prev.characterBible || []), ...items] }))}
         onExportWorld={handleExportWorld}
         onImportWorld={handleImportWorld}
+        isOpen={isGlossaryOpen}
+        onToggleOpen={setIsGlossaryOpen}
       />
 
-      <div className="flex-1 flex flex-col h-full overflow-hidden">
+      <div className="flex h-full flex-1 flex-col overflow-hidden">
         <Header
           stage={'review' as AppStage}
           fileName={fileName}
@@ -528,23 +535,25 @@ const App: React.FC = () => {
           onUpdateSessionName={handleUpdateSessionName}
         />
 
-        <main className="flex-1 overflow-y-auto prose-scroll mr-12">
-          <ScannerView
-            chunks={chunks}
-            currentChunkIdx={0}
-            isProcessing={false}
-            processingError={null}
-            stage={'review' as AppStage}
-            onToggleProcessing={() => {}}
-            onApproveMistake={handleApproveMistake}
-            onRejectMistake={handleRejectMistake}
-            onRevertMistake={handleRevertMistake}
-            onApproveAll={handleApproveAll}
-            onRejectAll={handleRejectAll}
-            onResetAllMistakes={handleResetAllMistakes}
-            fileName={fileName}
-            getSessionData={getSessionData}
-          />
+        <main className={`flex-1 overflow-hidden transition-[margin] duration-300 ${isGlossaryOpen ? 'mr-[384px]' : 'mr-12'}`}>
+          <div className="lt-enter lt-enter-delay-2 h-full">
+            <ScannerView
+              chunks={chunks}
+              currentChunkIdx={0}
+              isProcessing={false}
+              processingError={null}
+              stage={'review' as AppStage}
+              onToggleProcessing={() => {}}
+              onApproveMistake={handleApproveMistake}
+              onRejectMistake={handleRejectMistake}
+              onRevertMistake={handleRevertMistake}
+              onApproveAll={handleApproveAll}
+              onRejectAll={handleRejectAll}
+              onResetAllMistakes={handleResetAllMistakes}
+              fileName={fileName}
+              getSessionData={getSessionData}
+            />
+          </div>
         </main>
       </div>
 
@@ -581,4 +590,3 @@ const App: React.FC = () => {
 };
 
 export default App;
-

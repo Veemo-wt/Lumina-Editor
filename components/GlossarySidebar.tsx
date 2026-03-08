@@ -13,6 +13,8 @@ interface Props {
   onImportBible: (items: CharacterTrait[]) => void;
   onExportWorld: () => void;
   onImportWorld: (file: File) => void;
+  isOpen?: boolean;
+  onToggleOpen?: (nextOpen: boolean) => void;
 }
 
 const GlossarySidebar: React.FC<Props> = ({
@@ -25,10 +27,13 @@ const GlossarySidebar: React.FC<Props> = ({
   onImportGlossary,
   onImportBible,
   onExportWorld,
-  onImportWorld
+  onImportWorld,
+  isOpen: controlledIsOpen,
+  onToggleOpen
 }) => {
-  const [isOpen, setIsOpen] = useState(true);
+  const [internalIsOpen, setInternalIsOpen] = useState(true);
   const [activeTab, setActiveTab] = useState<'glossary' | 'bible'>('glossary');
+  const isOpen = controlledIsOpen ?? internalIsOpen;
 
   // Form State
   const [term, setTerm] = useState('');
@@ -180,20 +185,28 @@ const GlossarySidebar: React.FC<Props> = ({
     }
   };
 
+  const toggleSidebar = () => {
+    const next = !isOpen;
+    if (controlledIsOpen === undefined) {
+      setInternalIsOpen(next);
+    }
+    onToggleOpen?.(next);
+  };
+
   return (
-    <div className={`fixed right-0 top-[73px] h-[calc(100vh-73px)] bg-white dark:bg-gray-900 border-l border-gray-200 dark:border-gray-800 shadow-xl transition-all duration-300 flex flex-col z-20 ${isOpen ? 'w-96' : 'w-12'}`}>
+    <div className={`fixed right-0 top-[65px] z-20 flex h-[calc(100vh-65px)] flex-col border-l border-gray-200/90 bg-white/95 shadow-xl backdrop-blur transition-all duration-300 dark:border-gray-800 dark:bg-gray-950/95 ${isOpen ? 'w-96' : 'w-12'}`}>
 
       {/* Toggle Handle */}
       <button
-        onClick={() => setIsOpen(!isOpen)}
-        className="absolute -left-3 top-1/2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-full p-1 shadow-md hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+        onClick={toggleSidebar}
+        className="absolute -left-3 top-1/2 rounded-full border border-gray-200 bg-white p-1 shadow-md transition-colors hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:hover:bg-gray-700"
       >
         <Book size={16} className="text-gray-600 dark:text-gray-400" />
       </button>
 
       {isOpen ? (
         <>
-          <div className="p-4 bg-gray-50 dark:bg-gray-800/50 border-b border-gray-200 dark:border-gray-800">
+          <div className="border-b border-gray-200/80 bg-gray-50/85 p-4 dark:border-gray-800 dark:bg-gray-900/70">
             <h2 className="font-serif text-lg font-bold text-gray-800 dark:text-gray-200 flex items-center gap-2">
               <Globe size={18} />
               Baza wiedzy
@@ -214,7 +227,7 @@ const GlossarySidebar: React.FC<Props> = ({
             </div>
           </div>
 
-          <div className="flex-1 overflow-y-auto p-4 space-y-6">
+          <div className="prose-scroll flex-1 overflow-y-auto p-4 space-y-6">
 
             {/* GLOBAL ACTIONS (Import/Export World) */}
             <div className="bg-gray-50 dark:bg-gray-900/50 p-3 rounded-lg border border-gray-100 dark:border-gray-800 mb-4">

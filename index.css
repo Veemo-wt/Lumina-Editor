@@ -4,78 +4,161 @@
 
 :root {
   font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
-  line-height: 1.5;
+  line-height: 1.55;
   font-weight: 400;
-
-  color-scheme: light dark;
-  color: rgba(255, 255, 255, 0.87);
-  background-color: #0f172a;
-  /* Slate 900 - Blue-ish dark */
-
+  color-scheme: light;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-a {
-  font-weight: 500;
-  color: #646cff;
-  text-decoration: inherit;
-}
-
-a:hover {
-  color: #535bf2;
-}
-
 body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
-  /* Reset default centering from Vite template */
   display: block;
   background-color: transparent;
+  color: #0f172a;
 }
 
-h1 {
-  font-size: 3.2em;
-  line-height: 1.1;
+.dark body {
+  color: #e5e7eb;
 }
 
-button {
-  border-radius: 8px;
-  border: 1px solid transparent;
-  padding: 0.6em 1.2em;
-  font-size: 1em;
-  font-weight: 500;
-  font-family: inherit;
-  background-color: #1a1a1a;
+#root {
+  width: 100%;
+  min-height: 100vh;
+}
+
+/* Custom scrollbar for reading panels */
+.prose-scroll::-webkit-scrollbar {
+  width: 9px;
+}
+
+.prose-scroll::-webkit-scrollbar-track {
+  background: #eef2f7;
+}
+
+.prose-scroll::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 6px;
+}
+
+.prose-scroll::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+.dark .prose-scroll::-webkit-scrollbar-track {
+  background: #111827;
+}
+
+.dark .prose-scroll::-webkit-scrollbar-thumb {
+  background: #475569;
+}
+
+.dark .prose-scroll::-webkit-scrollbar-thumb:hover {
+  background: #64748b;
+}
+
+/* Force dark mode colors on form elements */
+.dark input,
+.dark textarea,
+.dark select {
+  color-scheme: dark;
+}
+
+/* Range slider styling */
+input[type='range'] {
+  -webkit-appearance: none;
+  background: transparent;
+}
+
+input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  height: 16px;
+  width: 16px;
+  border-radius: 50%;
+  background: #3b82f6;
   cursor: pointer;
-  transition: border-color 0.25s;
+  margin-top: -6px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
 }
 
-button:hover {
-  border-color: #646cff;
+input[type='range']::-webkit-slider-runnable-track {
+  width: 100%;
+  height: 4px;
+  cursor: pointer;
+  background: #dbe3ee;
+  border-radius: 2px;
 }
 
-button:focus,
-button:focus-visible {
-  outline: 4px auto -webkit-focus-ring-color;
+.dark input[type='range']::-webkit-slider-runnable-track {
+  background: #334155;
 }
 
-@media (prefers-color-scheme: light) {
-  :root {
-    color: #213547;
-    background-color: #ffffff;
+/* Gentle staged entrance for top-level sections */
+@keyframes lt-fade-up {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 14px, 0);
   }
-
-  a:hover {
-    color: #747bff;
-  }
-
-  button {
-    background-color: #f9f9f9;
+  100% {
+    opacity: 1;
+    transform: none;
   }
 }
 
+@keyframes lt-fade-scale {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 12px, 0) scale(0.992);
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
 
+.lt-enter {
+  opacity: 0;
+  animation: lt-fade-up 420ms cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+}
+
+.lt-enter-delay-1 {
+  animation-delay: 80ms;
+}
+
+.lt-enter-delay-2 {
+  animation-delay: 150ms;
+}
+
+.lt-enter-soft {
+  opacity: 0;
+  animation: lt-fade-scale 420ms cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+}
+
+/* Slide-in animation for visibility warning */
+@keyframes slide-in-right {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.animate-slide-in-right {
+  animation: slide-in-right 0.3s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lt-enter,
+  .lt-enter-soft {
+    opacity: 1;
+    animation: none;
+    transform: none;
+  }
+}
