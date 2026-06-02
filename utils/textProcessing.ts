@@ -1,8 +1,9 @@
 import { ChunkData, GlossaryItem, CharacterTrait, RawFile, RagEntry } from '../types';
 import * as pdfjsLib from 'pdfjs-dist';
 import mammoth from 'mammoth';
-import { Document, Packer, Paragraph, TextRun, FootnoteReferenceRun } from 'docx';
+import { Document, Packer, Paragraph, TextRun, FootnoteReferenceRun, UnderlineType } from 'docx';
 import JSZip from 'jszip';
+import { parseInlineTokens, sanitizeDocxText } from './richText';
 
 // Initialize PDF.js worker
 pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://esm.sh/pdfjs-dist@4.0.379/build/pdf.worker.min.mjs';
@@ -192,7 +193,7 @@ export const createWorldPackage = async (
 
   // 1. Metadata JSON (Lightweight)
   const metadata = {
-    version: "2.1",
+    version: "2.2",
     createdAt: new Date().toISOString(),
     project: "Lumina World Knowledge Pack",
     counts: {
@@ -508,9 +509,49 @@ export const mergeGlossaryItems = (existing: GlossaryItem[], newItems: GlossaryI
 };
 
 export const mergeCharacterTraits = (existing: CharacterTrait[], newItems: CharacterTrait[]): CharacterTrait[] => {
-  const existingNames = new Set(existing.map(i => i.name.toLowerCase()));
-  const uniqueNewItems = newItems.filter(i => !existingNames.has(i.name.toLowerCase()));
-  return [...existing, ...uniqueNewItems];
+  const normalize = (value?: string) => value?.trim().toLowerCase() || '';
+  const appendText = (current?: string, incoming?: string) => {
+    const next = incoming?.trim();
+    if (!next) return current;
+    if (!current?.trim()) return next;
+    return current.toLowerCase().includes(next.toLowerCase()) ? current : `${current}\n${next}`;
+  };
+  const mergeList = (current?: string[], incoming?: string[]) => {
+    const values = [...(current || []), ...(incoming || [])].map(item => item.trim()).filter(Boolean);
+    return Array.from(new Set(values));
+  };
+
+  const merged = [...existing];
+
+  for (const item of newItems) {
+    const itemNames = [item.name, item.polishName, ...(item.aliases || [])].map(normalize).filter(Boolean);
+    const existingIndex = merged.findIndex(character => {
+      const characterNames = [character.name, character.polishName, ...(character.aliases || [])].map(normalize).filter(Boolean);
+      return itemNames.some(name => characterNames.includes(name));
+    });
+
+    if (existingIndex === -1) {
+      merged.push(item);
+      continue;
+    }
+
+    const current = merged[existingIndex];
+    merged[existingIndex] = {
+      ...current,
+      polishName: current.polishName || item.polishName,
+      gender: current.gender === 'neutral' && item.gender ? item.gender : current.gender,
+      age: current.age || item.age,
+      role: appendText(current.role, item.role),
+      speechStyle: appendText(current.speechStyle, item.speechStyle),
+      notes: appendText(current.notes, item.notes),
+      history: appendText(current.history, item.history),
+      arc: appendText(current.arc, item.arc),
+      aliases: mergeList(current.aliases, item.aliases),
+      keyEvents: mergeList(current.keyEvents, item.keyEvents)
+    };
+  }
+
+  return merged;
 };
 
 /**
@@ -840,13 +881,10 @@ const extractTextFromIdmlStory = (xmlContent: string): string => {
     if (trimmedText) {
       const hasLetters = /[a-zA-ZąćęłńóśźżĄĆĘŁŃÓŚŹŻ]/.test(trimmedText);
       if (hasLetters && (isBold || isItalic)) {
-        if (isBold && isItalic) {
-          return `***${text}***`;
-        } else if (isBold) {
-          return `**${text}**`;
-        } else if (isItalic) {
-          return `*${text}*`;
-        }
+        let formatted = text;
+        if (isItalic) formatted = `<em>${formatted}</em>`;
+        if (isBold) formatted = `<strong>${formatted}</strong>`;
+        return formatted;
       }
     }
     return text;
@@ -922,13 +960,10 @@ const extractTextFromIdmlStory = (xmlContent: string): string => {
               if (rangeText) {
                 const hasLetters = /[a-zA-ZąćęłńóśźżĄĆĘŁŃÓŚŹŻ]/.test(rangeText.trim());
                 if (hasLetters && (isBold || isItalic)) {
-                  if (isBold && isItalic) {
-                    currentParagraph += `***${rangeText}***`;
-                  } else if (isBold) {
-                    currentParagraph += `**${rangeText}**`;
-                  } else if (isItalic) {
-                    currentParagraph += `*${rangeText}*`;
-                  }
+                  let formatted = rangeText;
+                  if (isItalic) formatted = `<em>${formatted}</em>`;
+                  if (isBold) formatted = `<strong>${formatted}</strong>`;
+                  currentParagraph += formatted;
                 } else {
                   currentParagraph += rangeText;
                 }
@@ -949,13 +984,10 @@ const extractTextFromIdmlStory = (xmlContent: string): string => {
         if (rangeText) {
           const hasLetters = /[a-zA-ZąćęłńóśźżĄĆĘŁŃÓŚŹŻ]/.test(rangeText.trim());
           if (hasLetters && (isBold || isItalic)) {
-            if (isBold && isItalic) {
-              currentParagraph += `***${rangeText}***`;
-            } else if (isBold) {
-              currentParagraph += `**${rangeText}**`;
-            } else if (isItalic) {
-              currentParagraph += `*${rangeText}*`;
-            }
+            let formatted = rangeText;
+            if (isItalic) formatted = `<em>${formatted}</em>`;
+            if (isBold) formatted = `<strong>${formatted}</strong>`;
+            currentParagraph += formatted;
           } else {
             currentParagraph += rangeText;
           }
@@ -1060,14 +1092,14 @@ export const extractTextFromIdml = async (file: File): Promise<string> => {
  * Extracts footnotes with [N] markers in text and footnote content at the end
  *
  * @param buffer - ArrayBuffer of the DOCX file
- * @param preserveFormatting - If true, bold/italic will be preserved using markers: **bold** and *italic*
+ * @param preserveFormatting - If true, inline DOCX formatting will be preserved using HTML tags
  */
 const parseDocxBuffer = async (buffer: ArrayBuffer, preserveFormatting: boolean = false): Promise<string> => {
   // Use convertToHtml to extract footnotes properly
   const result = await mammoth.convertToHtml({ arrayBuffer: buffer });
   const html = result.value;
 
-  // Parse HTML and convert to text with formatting markers
+  // Parse HTML and convert to internal rich-text markup
   const parser = new DOMParser();
   const doc = parser.parseFromString(html, 'text/html');
 
@@ -1075,22 +1107,97 @@ const parseDocxBuffer = async (buffer: ArrayBuffer, preserveFormatting: boolean 
   let footnoteCounter = 1;
   const footnoteIdMap: Map<string, number> = new Map();
 
+  const extractTextWithFormatting = (node: Node): string => {
+    let text = '';
+
+    for (const child of node.childNodes) {
+      if (child.nodeType === Node.TEXT_NODE) {
+        text += child.textContent || '';
+        continue;
+      }
+
+      if (child.nodeType !== Node.ELEMENT_NODE) {
+        continue;
+      }
+
+      const elem = child as Element;
+      const tagName = elem.tagName.toLowerCase();
+
+      if (elem.classList?.contains('footnote-backref') || elem.getAttribute('href')?.includes('footnote-ref')) {
+        continue;
+      }
+
+      if (tagName === 'p') {
+        text += extractTextWithFormatting(elem) + '\n';
+      } else if (tagName === 'br') {
+        text += '\n';
+      } else if (tagName === 'strong' || tagName === 'b') {
+        const innerText = extractTextWithFormatting(elem);
+        if (preserveFormatting) {
+          text += innerText.trim() ? `<strong>${innerText}</strong>` : innerText;
+        } else {
+          text += innerText;
+        }
+      } else if (tagName === 'em' || tagName === 'i') {
+        const innerText = extractTextWithFormatting(elem);
+        if (preserveFormatting) {
+          text += innerText.trim() ? `<em>${innerText}</em>` : innerText;
+        } else {
+          text += innerText;
+        }
+      } else if (tagName === 'u') {
+        const innerText = extractTextWithFormatting(elem);
+        if (preserveFormatting) {
+          text += innerText.trim() ? `<u>${innerText}</u>` : innerText;
+        } else {
+          text += innerText;
+        }
+      } else if (tagName === 'a' && elem.getAttribute('href')?.startsWith('#footnote-')) {
+        const footnoteId = elem.getAttribute('href')?.replace('#footnote-', '') || '';
+        const footnoteNum = footnoteIdMap.get(footnoteId);
+        if (footnoteNum) {
+          text += `[${footnoteNum}]`;
+        }
+      } else if (tagName === 'sup' && elem.querySelector('a[href^="#footnote-"]')) {
+        const link = elem.querySelector('a[href^="#footnote-"]');
+        if (link) {
+          const footnoteId = link.getAttribute('href')?.replace('#footnote-', '') || '';
+          const footnoteNum = footnoteIdMap.get(footnoteId);
+          if (footnoteNum) {
+            text += `[${footnoteNum}]`;
+          }
+        }
+      } else if (tagName === 'ol') {
+        if (!elem.querySelector('li[id^="footnote-"]')) {
+          const items = elem.querySelectorAll(':scope > li');
+          items.forEach((li, idx) => {
+            const itemText = extractTextWithFormatting(li).trim();
+            text += `${idx + 1}. ${itemText}\n`;
+          });
+          text += '\n';
+        }
+      } else if (tagName === 'ul') {
+        const items = elem.querySelectorAll(':scope > li');
+        items.forEach((li) => {
+          const itemText = extractTextWithFormatting(li).trim();
+          text += `• ${itemText}\n`;
+        });
+        text += '\n';
+      } else if (tagName === 'li') {
+        text += extractTextWithFormatting(elem);
+      } else {
+        text += extractTextWithFormatting(elem);
+      }
+    }
+
+    return text;
+  };
+
   // First pass: collect all footnotes
   const footnoteElements = doc.querySelectorAll('li[id^="footnote-"]');
   footnoteElements.forEach((fn) => {
     const id = fn.id.replace('footnote-', '');
-    // Get footnote content, excluding the back reference link
-    let content = '';
-    fn.childNodes.forEach(node => {
-      if (node.nodeType === Node.TEXT_NODE) {
-        content += node.textContent;
-      } else if (node.nodeType === Node.ELEMENT_NODE) {
-        const elem = node as Element;
-        if (!elem.classList?.contains('footnote-backref') && elem.tagName !== 'A') {
-          content += elem.textContent || '';
-        }
-      }
-    });
+    let content = extractTextWithFormatting(fn);
     content = content.replace(/\s*↩\s*$/, '').trim(); // Remove back arrow if present
     if (content) {
       footnoteIdMap.set(id, footnoteCounter);
@@ -1104,95 +1211,6 @@ const parseDocxBuffer = async (buffer: ArrayBuffer, preserveFormatting: boolean 
   if (footnotesOl && footnotesOl.querySelector('li[id^="footnote-"]')) {
     footnotesOl.remove();
   }
-
-  const extractTextWithFormatting = (node: Node, listContext?: { type: 'ol' | 'ul'; index: number }): string => {
-    let text = '';
-
-    for (const child of node.childNodes) {
-      if (child.nodeType === Node.TEXT_NODE) {
-        text += child.textContent || '';
-      } else if (child.nodeType === Node.ELEMENT_NODE) {
-        const elem = child as Element;
-        const tagName = elem.tagName.toLowerCase();
-
-        if (tagName === 'p') {
-          text += extractTextWithFormatting(elem) + '\n';
-        } else if (tagName === 'br') {
-          text += '\n';
-        } else if (tagName === 'strong' || tagName === 'b') {
-          if (preserveFormatting) {
-            const innerText = extractTextWithFormatting(elem);
-            if (innerText.trim()) {
-              text += `**${innerText}**`;
-            }
-          } else {
-            text += extractTextWithFormatting(elem);
-          }
-        } else if (tagName === 'em' || tagName === 'i') {
-          if (preserveFormatting) {
-            const innerText = extractTextWithFormatting(elem);
-            if (innerText.trim()) {
-              text += `*${innerText}*`;
-            }
-          } else {
-            text += extractTextWithFormatting(elem);
-          }
-        } else if (tagName === 'u') {
-          // Underline - preserve as __underline__ if formatting enabled
-          if (preserveFormatting) {
-            const innerText = extractTextWithFormatting(elem);
-            if (innerText.trim()) {
-              text += `__${innerText}__`;
-            }
-          } else {
-            text += extractTextWithFormatting(elem);
-          }
-        } else if (tagName === 'a' && elem.getAttribute('href')?.startsWith('#footnote-')) {
-          // Footnote reference
-          const footnoteId = elem.getAttribute('href')?.replace('#footnote-', '') || '';
-          const footnoteNum = footnoteIdMap.get(footnoteId);
-          if (footnoteNum) {
-            text += `[${footnoteNum}]`;
-          }
-        } else if (tagName === 'sup' && elem.querySelector('a[href^="#footnote-"]')) {
-          // Footnote reference wrapped in sup
-          const link = elem.querySelector('a[href^="#footnote-"]');
-          if (link) {
-            const footnoteId = link.getAttribute('href')?.replace('#footnote-', '') || '';
-            const footnoteNum = footnoteIdMap.get(footnoteId);
-            if (footnoteNum) {
-              text += `[${footnoteNum}]`;
-            }
-          }
-        } else if (tagName === 'ol') {
-          // Ordered list - skip if it's footnotes list
-          if (!elem.querySelector('li[id^="footnote-"]')) {
-            const items = elem.querySelectorAll(':scope > li');
-            items.forEach((li, idx) => {
-              const itemText = extractTextWithFormatting(li, { type: 'ol', index: idx + 1 }).trim();
-              text += `${idx + 1}. ${itemText}\n`;
-            });
-            text += '\n';
-          }
-        } else if (tagName === 'ul') {
-          // Unordered list
-          const items = elem.querySelectorAll(':scope > li');
-          items.forEach((li) => {
-            const itemText = extractTextWithFormatting(li, { type: 'ul', index: 0 }).trim();
-            text += `• ${itemText}\n`;
-          });
-          text += '\n';
-        } else if (tagName === 'li') {
-          // List item - just extract content (formatting handled by parent)
-          text += extractTextWithFormatting(elem);
-        } else {
-          text += extractTextWithFormatting(elem);
-        }
-      }
-    }
-
-    return text;
-  };
 
   let extractedText = extractTextWithFormatting(doc.body);
   extractedText = cleanupWhitespaceBasic(extractedText);
@@ -1260,6 +1278,73 @@ export const extractTextFromZip = async (file: File, removeRunningHeads: boolean
   return files;
 };
 
+const FOOTNOTE_REF_RE = /\[\^?(\d+)\]/g;
+const FOOTNOTE_DEF_RE = /^\[\^?(\d+)\]:\s*(.*)$/;
+const NUMBERED_ENDNOTE_RE = /^(\d+)[.)]\s+/;
+
+const extractReferencedFootnoteNumbers = (input: string): Set<number> => {
+  const numbers = new Set<number>();
+
+  for (const match of input.matchAll(FOOTNOTE_REF_RE)) {
+    numbers.add(parseInt(match[1], 10));
+  }
+
+  return numbers;
+};
+
+const looksLikeFootnoteSection = (mainCandidate: string, sectionCandidate: string): boolean => {
+  const references = extractReferencedFootnoteNumbers(mainCandidate);
+  if (references.size === 0) {
+    return false;
+  }
+
+  const lines = sectionCandidate.split('\n');
+  let hasBracketDefinitions = false;
+  let hasMatchingBracketDefinition = false;
+  let hasMatchingNumberedDefinition = false;
+  let consecutiveNumberedDefinitions = 0;
+  let maxConsecutiveNumberedDefinitions = 0;
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line) {
+      continue;
+    }
+
+    const bracketDefinitionMatch = line.match(FOOTNOTE_DEF_RE);
+    if (bracketDefinitionMatch) {
+      hasBracketDefinitions = true;
+      if (references.has(parseInt(bracketDefinitionMatch[1], 10))) {
+        hasMatchingBracketDefinition = true;
+      }
+      consecutiveNumberedDefinitions = 0;
+      continue;
+    }
+
+    const numberedDefinitionMatch = line.match(NUMBERED_ENDNOTE_RE);
+    if (numberedDefinitionMatch) {
+      consecutiveNumberedDefinitions += 1;
+      maxConsecutiveNumberedDefinitions = Math.max(maxConsecutiveNumberedDefinitions, consecutiveNumberedDefinitions);
+      if (references.has(parseInt(numberedDefinitionMatch[1], 10))) {
+        hasMatchingNumberedDefinition = true;
+      }
+      continue;
+    }
+
+    consecutiveNumberedDefinitions = 0;
+  }
+
+  if (hasBracketDefinitions && hasMatchingBracketDefinition) {
+    return true;
+  }
+
+  if (maxConsecutiveNumberedDefinitions >= 2 && hasMatchingNumberedDefinition) {
+    return true;
+  }
+
+  return sectionCandidate.includes('↑');
+};
+
 export const generateDocxBlob = async (text: string, preserveFormatting: boolean = false): Promise<Blob> => {
   // Parse footnotes from text
   // Supported formats:
@@ -1273,17 +1358,36 @@ export const generateDocxBlob = async (text: string, preserveFormatting: boolean
 
   // Check for explicit section separators
   const separatorPatterns = [
-    /\n---+\n/,                           // --- separator
-    /\n={3,}\n/,                          // === separator
-    /\n\*{3,}\n/,                         // *** separator
-    /\n(?:NOTES?|ENDNOTES?|FOOTNOTES?|PRZYPISY|UWAGI)\s*\n/i,  // Section headers
+    /\n---+\n/g,                           // --- separator
+    /\n={3,}\n/g,                          // === separator
+    /\n\*{3,}\n/g,                         // *** separator
+    /\n(?:NOTES?|ENDNOTES?|FOOTNOTES?|PRZYPISY|UWAGI)\s*\n/gi,  // Section headers
   ];
 
   for (const pattern of separatorPatterns) {
-    const match = text.match(pattern);
-    if (match && match.index !== undefined) {
-      mainText = text.slice(0, match.index);
-      footnotesSection = text.slice(match.index + match[0].length);
+    const matches = Array.from(text.matchAll(pattern));
+
+    for (let i = matches.length - 1; i >= 0; i--) {
+      const match = matches[i];
+      if (match.index === undefined) {
+        continue;
+      }
+
+      const mainCandidate = text.slice(0, match.index);
+      const sectionCandidate = text.slice(match.index + match[0].length);
+
+      // Only split here when the trailing block actually looks like referenced footnotes.
+      // This prevents scene/section separators like "***" from disappearing into footnotes.xml.
+      if (!looksLikeFootnoteSection(mainCandidate, sectionCandidate)) {
+        continue;
+      }
+
+      mainText = mainCandidate;
+      footnotesSection = sectionCandidate;
+      break;
+    }
+
+    if (footnotesSection) {
       break;
     }
   }
@@ -1315,8 +1419,13 @@ export const generateDocxBlob = async (text: string, preserveFormatting: boolean
     }
 
     if (endnoteStartIdx >= 0 && consecutiveEndnotes >= 2) {
-      mainText = lines.slice(0, endnoteStartIdx).join('\n');
-      footnotesSection = lines.slice(endnoteStartIdx).join('\n');
+      const mainCandidate = lines.slice(0, endnoteStartIdx).join('\n');
+      const sectionCandidate = lines.slice(endnoteStartIdx).join('\n');
+
+      if (looksLikeFootnoteSection(mainCandidate, sectionCandidate)) {
+        mainText = mainCandidate;
+        footnotesSection = sectionCandidate;
+      }
     }
   }
 
@@ -1332,8 +1441,13 @@ export const generateDocxBlob = async (text: string, preserveFormatting: boolean
         const lastParaBreak = textBeforeArrow.lastIndexOf('\n\n');
 
         if (lastParaBreak > 0 && (firstArrowIdx - lastParaBreak) < 500) {
-          mainText = text.slice(0, lastParaBreak).trim();
-          footnotesSection = text.slice(lastParaBreak).trim();
+          const mainCandidate = text.slice(0, lastParaBreak).trim();
+          const sectionCandidate = text.slice(lastParaBreak).trim();
+
+          if (looksLikeFootnoteSection(mainCandidate, sectionCandidate)) {
+            mainText = mainCandidate;
+            footnotesSection = sectionCandidate;
+          }
         }
       }
     }
@@ -1342,72 +1456,34 @@ export const generateDocxBlob = async (text: string, preserveFormatting: boolean
   // Helper function to parse formatted runs (bold, italic, footnote refs)
   // Supports both [^N] and [N] formats
   function parseFormattedRuns(lineText: string, withFormatting: boolean): (TextRun | FootnoteReferenceRun)[] {
+    const { tokens } = parseInlineTokens(lineText, { stripUnmatchedMarkers: false });
     const children: (TextRun | FootnoteReferenceRun)[] = [];
-    let remaining = lineText;
 
-    while (remaining.length > 0) {
-      // Look for footnote reference [^N] or [N]
-      const footnoteRefMatch = remaining.match(/^\[\^?(\d+)\]/);
-      if (footnoteRefMatch) {
-        const footnoteId = parseInt(footnoteRefMatch[1], 10);
-        // Only add footnote reference if we have a definition for it
+    for (const token of tokens) {
+      if (token.type === 'footnoteRef') {
+        const footnoteId = token.footnoteNumber;
         if (footnotes[footnoteId]) {
           children.push(new FootnoteReferenceRun(footnoteId));
         } else {
-          // No definition, just render as text
-          children.push(new TextRun(footnoteRefMatch[0]));
+          children.push(new TextRun(`[${footnoteId}]`));
         }
-        remaining = remaining.slice(footnoteRefMatch[0].length);
         continue;
       }
 
-      if (withFormatting) {
-        // Look for **bold**
-        const boldMatch = remaining.match(/^\*\*(.+?)\*\*/);
-        if (boldMatch) {
-          children.push(new TextRun({ text: boldMatch[1], bold: true }));
-          remaining = remaining.slice(boldMatch[0].length);
-          continue;
-        }
-
-        // Look for *italic* (but not **)
-        const italicMatch = remaining.match(/^\*([^*]+?)\*/);
-        if (italicMatch && !remaining.startsWith('**')) {
-          children.push(new TextRun({ text: italicMatch[1], italics: true }));
-          remaining = remaining.slice(italicMatch[0].length);
-          continue;
-        }
+      const cleanedText = sanitizeDocxText(token.text);
+      if (!cleanedText) {
+        continue;
       }
 
-      // Find next marker position
-      let nextMarkerIdx = remaining.length;
-
-      // Both [^N] and [N] formats
-      const footnoteRefIdx = remaining.search(/\[\^?\d+\]/);
-      if (footnoteRefIdx > 0) nextMarkerIdx = Math.min(nextMarkerIdx, footnoteRefIdx);
-
-      if (withFormatting) {
-        const boldIdx = remaining.indexOf('**');
-        if (boldIdx > 0) nextMarkerIdx = Math.min(nextMarkerIdx, boldIdx);
-
-        const italicIdx = remaining.search(/(?<!\*)\*(?!\*)/);
-        if (italicIdx > 0) nextMarkerIdx = Math.min(nextMarkerIdx, italicIdx);
-      }
-
-      if (nextMarkerIdx > 0) {
-        children.push(new TextRun(remaining.slice(0, nextMarkerIdx)));
-        remaining = remaining.slice(nextMarkerIdx);
-      } else if (remaining.length > 0) {
-        children.push(new TextRun(remaining));
-        break;
-      }
+      children.push(new TextRun({
+        text: cleanedText,
+        bold: withFormatting && token.bold ? true : undefined,
+        italics: withFormatting && token.italics ? true : undefined,
+        underline: withFormatting && token.underline ? { type: UnderlineType.SINGLE } : undefined,
+      }));
     }
 
-    if (children.length === 0) {
-      children.push(new TextRun(''));
-    }
-
-    return children;
+    return children.length > 0 ? children : [new TextRun('')];
   }
 
   // Parse footnote definitions from the section
@@ -1577,29 +1653,40 @@ const detectInDesignWordBreaks = (text: string): Array<{ start: number; end: num
 };
 
 /**
- * Detect formatting markers (**bold** and *italic*) positions
+ * Detect formatting markers positions for legacy markdown and HTML rich-text tags
  * Returns positions of markers to exclude from formatting error detection
  */
 const detectFormattingMarkers = (text: string): Array<{ start: number; end: number }> => {
   const markers: Array<{ start: number; end: number }> = [];
 
-  // Detect **bold** markers - just the ** parts, not the content
-  const boldRegex = /\*\*(.+?)\*\*/g;
+  const htmlTagRegex = /<\/?(?:strong|b|em|i|u)>/gi;
   let match;
+  while ((match = htmlTagRegex.exec(text)) !== null) {
+    markers.push({ start: match.index, end: match.index + match[0].length });
+  }
+
+  const tripleRegex = /\*\*\*(.+?)\*\*\*/g;
+  while ((match = tripleRegex.exec(text)) !== null) {
+    markers.push({ start: match.index, end: match.index + 3 });
+    markers.push({ start: match.index + match[0].length - 3, end: match.index + match[0].length });
+  }
+
+  const boldRegex = /\*\*(.+?)\*\*/g;
   while ((match = boldRegex.exec(text)) !== null) {
-    // Opening **
     markers.push({ start: match.index, end: match.index + 2 });
-    // Closing **
     markers.push({ start: match.index + match[0].length - 2, end: match.index + match[0].length });
   }
 
-  // Detect *italic* markers - just the * parts, avoiding **
   const italicRegex = /(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g;
   while ((match = italicRegex.exec(text)) !== null) {
-    // Opening *
     markers.push({ start: match.index, end: match.index + 1 });
-    // Closing *
     markers.push({ start: match.index + match[0].length - 1, end: match.index + match[0].length });
+  }
+
+  const underlineRegex = /__(.+?)__/g;
+  while ((match = underlineRegex.exec(text)) !== null) {
+    markers.push({ start: match.index, end: match.index + 2 });
+    markers.push({ start: match.index + match[0].length - 2, end: match.index + match[0].length });
   }
 
   return markers;

@@ -71,7 +71,11 @@ const GlossarySidebar: React.FC<Props> = ({
       age: newTrait.age,
       role: newTrait.role,
       speechStyle: newTrait.speechStyle,
-      notes: newTrait.notes
+      notes: newTrait.notes,
+      history: newTrait.history,
+      arc: newTrait.arc,
+      keyEvents: newTrait.keyEvents,
+      aliases: newTrait.aliases
     });
     setNewTrait({ gender: 'male' });
   };
@@ -406,6 +410,13 @@ const GlossarySidebar: React.FC<Props> = ({
                       value={newTrait.speechStyle || ''}
                       onChange={e => setNewTrait({ ...newTrait, speechStyle: e.target.value })}
                     />
+                    <textarea
+                      placeholder="Historia / przemiany / ważne wydarzenia"
+                      rows={3}
+                      className="w-full resize-none rounded border p-2 text-xs dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                      value={newTrait.history || ''}
+                      onChange={e => setNewTrait({ ...newTrait, history: e.target.value })}
+                    />
                     <button
                       onClick={handleAddCharacter}
                       disabled={!newTrait.name || !newTrait.polishName}
@@ -446,12 +457,20 @@ const GlossarySidebar: React.FC<Props> = ({
                     <div className="flex gap-2 mt-2">
                       <span className="text-[10px] bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded text-gray-600 dark:text-gray-300 capitalize">{char.gender}</span>
                       {char.age && <span className="text-[10px] bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded text-gray-600 dark:text-gray-300">{char.age}</span>}
+                      {char.aliases && char.aliases.length > 0 && (
+                        <span className="text-[10px] bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded text-gray-600 dark:text-gray-300">
+                          {char.aliases.join(', ')}
+                        </span>
+                      )}
                     </div>
 
-                    {(char.speechStyle || char.notes) && (
+                    {(char.speechStyle || char.notes || char.history || char.arc || (char.keyEvents && char.keyEvents.length > 0)) && (
                       <div className="mt-2 pt-2 border-t border-gray-100 dark:border-gray-700 text-xs text-gray-500 dark:text-gray-400 italic">
                         {char.speechStyle && <div>Styl: {char.speechStyle}</div>}
                         {char.notes && <div>Notatki: {char.notes}</div>}
+                        {char.history && <div>Historia: {char.history}</div>}
+                        {char.arc && <div>Przemiana: {char.arc}</div>}
+                        {char.keyEvents && char.keyEvents.length > 0 && <div>Wydarzenia: {char.keyEvents.join('; ')}</div>}
                       </div>
                     )}
                   </div>

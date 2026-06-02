@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { AppStage, ChunkData, ScanOptions } from './types';
-import { saveBlob, generateDocxBlob, generateOriginalDocxBlob } from './utils/textProcessing';
+import { saveBlob, generateDocxBlob, generateOriginalDocxBlob, mergeGlossaryItems, mergeCharacterTraits } from './utils/textProcessing';
 import { saveSession, loadSession, clearSession, importFromLSF, exportToLSF, LuminaScanFile } from './utils/storage';
 import { registerSession, generateSessionId, getSessionInfo, updateSessionName } from './utils/sessionManager';
 import { hasUsername, setUsername, getUsername } from './utils/username';
@@ -369,10 +369,10 @@ const App: React.FC = () => {
     const text = await file.text();
     const data = JSON.parse(text);
     if (data.glossary) {
-      setConfig(prev => ({ ...prev, glossary: [...prev.glossary, ...data.glossary] }));
+      setConfig(prev => ({ ...prev, glossary: mergeGlossaryItems(prev.glossary, data.glossary) }));
     }
     if (data.characterBible) {
-      setConfig(prev => ({ ...prev, characterBible: [...prev.characterBible, ...data.characterBible] }));
+      setConfig(prev => ({ ...prev, characterBible: mergeCharacterTraits(prev.characterBible, data.characterBible) }));
     }
   };
 

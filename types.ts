@@ -33,11 +33,15 @@ export interface CharacterTrait {
   id: string;
   name: string; // Imię postaci w oryginale
   polishName: string; // Imię postaci po polsku
+  aliases?: string[]; // Inne imiona, przezwiska, tytuły
   gender: "male" | "female" | "neutral" | "plural";
   age?: string; // np. "Nastolatek", "Starsza osoba", "Dziecko"
   speechStyle?: string; // np. "Formalny", "Slangowy", "Archaiczny", "Jąkający się"
   role?: string; // np. "Protagonista", "Antagonista"
   notes?: string;
+  history?: string; // Historia postaci, przemiany, ważne wydarzenia
+  arc?: string; // Kierunek przemiany / łuk postaci
+  keyEvents?: string[]; // Konkretne wydarzenia wpływające na postać
 }
 
 export interface RagEntry {

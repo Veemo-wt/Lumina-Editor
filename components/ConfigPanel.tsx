@@ -58,7 +58,11 @@ const ConfigPanel: React.FC<Props> = ({ config, onChange, onStart, fileName, cha
       age: newTrait.age,
       role: newTrait.role,
       speechStyle: newTrait.speechStyle,
-      notes: newTrait.notes
+      notes: newTrait.notes,
+      history: newTrait.history,
+      arc: newTrait.arc,
+      keyEvents: newTrait.keyEvents,
+      aliases: newTrait.aliases
     };
 
     onChange({
