@@ -3,6 +3,7 @@ import { Play, Pause, AlertTriangle, CheckCircle2, Loader2, X, Check, ChevronLef
 import { ChunkData, Mistake, MistakeSeverity, AppStage } from '../types';
 import FeedbackModal from './FeedbackModal';
 import { LuminaScanFile } from '../utils/storage';
+import { getRichTextBlocks, parseInlineTokens, parseTextWithFootnotes } from '../utils/richText';
 
 interface ScannerViewProps {
   chunks: ChunkData[];
@@ -131,189 +132,83 @@ const ScannerView: React.FC<ScannerViewProps> = ({
     return () => clearInterval(interval);
   }, [isProcessing, stage]);
 
-  // Parse footnotes from text and return main content + footnotes map
-  // Supports [^N], [N], and ↑ formats, including [N]: format from DOCX
   const parseFootnotes = useCallback((text: string): { mainText: string; footnotes: Map<number, string> } => {
-    const footnotes = new Map<number, string>();
-
-    // Find separator --- or look for [N]: format at end
-    let separatorIdx = text.indexOf('\n---\n');
-    let mainText = text;
-    let footnotesSection = '';
-
-    if (separatorIdx !== -1) {
-      mainText = text.slice(0, separatorIdx);
-      footnotesSection = text.slice(separatorIdx + 5);
-    } else {
-      // Check for [^N]: or [N]: format on new line
-      const defMatch = text.match(/\n\[\^?(\d+)\]:/);
-      if (defMatch && defMatch.index !== undefined) {
-        mainText = text.slice(0, defMatch.index);
-        footnotesSection = text.slice(defMatch.index);
-      } else {
-        // Look for footnotes with ↑ symbol at the end
-        const lines = text.split('\n');
-        let footnoteStartIdx = lines.length;
-
-        for (let i = lines.length - 1; i >= 0; i--) {
-          const line = lines[i].trim();
-          if (line.includes('↑') || /^\d+[.)]\s/.test(line) || /^\[\^?\d+\]/.test(line)) {
-            footnoteStartIdx = i;
-          } else if (line.length > 0) {
-            break;
-          }
-        }
-
-        if (footnoteStartIdx < lines.length) {
-          mainText = lines.slice(0, footnoteStartIdx).join('\n');
-          footnotesSection = lines.slice(footnoteStartIdx).join('\n');
-        }
-      }
-    }
-
-    if (!footnotesSection.trim()) {
-      return { mainText, footnotes };
-    }
-
-    // Parse footnote definitions: [^N]: content or [N]: content - handle multi-line
-    const lines = footnotesSection.split('\n');
-    let currentFootnoteNum: number | null = null;
-    let currentContent: string[] = [];
-
-    for (const line of lines) {
-      // Match both [^N]: and [N]: formats
-      const defMatch = line.match(/^\[\^?(\d+)\]:\s*(.*)$/);
-      if (defMatch) {
-        if (currentFootnoteNum !== null && currentContent.length > 0) {
-          footnotes.set(currentFootnoteNum, currentContent.join(' ').trim());
-        }
-        currentFootnoteNum = parseInt(defMatch[1], 10);
-        currentContent = defMatch[2].trim() ? [defMatch[2].trim()] : [];
-      } else if (currentFootnoteNum !== null && line.trim()) {
-        currentContent.push(line.trim());
-      }
-    }
-
-    if (currentFootnoteNum !== null && currentContent.length > 0) {
-      footnotes.set(currentFootnoteNum, currentContent.join(' ').trim());
-    }
-
-    // If no footnotes found with [^N]: format, try ↑ format
-    if (footnotes.size === 0) {
-      const arrowLines = footnotesSection.split('\n').filter(l => l.trim());
-      let footnoteNum = 1;
-
-      for (const line of arrowLines) {
-        let content = line.trim();
-        // Remove ↑ symbol
-        content = content.replace(/↑\s*$/, '').trim();
-        // Remove leading number if present
-        content = content.replace(/^\d+[.)]\s*/, '').trim();
-
-        if (content) {
-          footnotes.set(footnoteNum, content);
-          footnoteNum++;
-        }
-      }
-    }
-
-    return { mainText, footnotes };
+    return parseTextWithFootnotes(text);
   }, []);
 
-  // Render inline text with formatting (bold, italic, footnote refs)
-  // Supports both [^N] and [N] formats
   const renderInlineText = useCallback((text: string, keyPrefix: string = ''): React.ReactNode[] => {
-    const result: React.ReactNode[] = [];
-    let remaining = text;
-    let keyCounter = 0;
+    const { tokens } = parseInlineTokens(text, { stripUnmatchedMarkers: false });
 
-    const getKey = () => `${keyPrefix}-${keyCounter++}`;
+    return tokens.map((token, idx) => {
+      const key = `${keyPrefix}-${idx}`;
 
-    while (remaining.length > 0) {
-      // Look for footnote reference [^N] or [N]
-      const footnoteRefMatch = remaining.match(/^\[\^?(\d+)\]/);
-      if (footnoteRefMatch) {
-        const footnoteNum = footnoteRefMatch[1];
-        result.push(
+      if (token.type === 'footnoteRef') {
+        return (
           <sup
-            key={getKey()}
+            key={key}
             className="inline-flex items-center justify-center min-w-[1.2em] h-[1.2em] text-[0.65em] font-bold text-white bg-brand-500 dark:bg-brand-600 rounded-full mx-0.5 cursor-help hover:bg-brand-600 dark:hover:bg-brand-500 transition-colors"
-            title={`Przypis ${footnoteNum}`}
+            title={`Przypis ${token.footnoteNumber}`}
           >
-            {footnoteNum}
+            {token.footnoteNumber}
           </sup>
         );
-        remaining = remaining.slice(footnoteRefMatch[0].length);
-        continue;
       }
 
-      // Look for **bold**
-      const boldMatch = remaining.match(/^\*\*(.+?)\*\*/);
-      if (boldMatch) {
-        result.push(
-          <strong key={getKey()} className="font-bold">
-            {renderInlineText(boldMatch[1], getKey())}
-          </strong>
-        );
-        remaining = remaining.slice(boldMatch[0].length);
-        continue;
-      }
+      const className = [
+        token.bold ? 'font-bold' : '',
+        token.italics ? 'italic' : '',
+        token.underline ? 'underline' : '',
+      ].filter(Boolean).join(' ') || undefined;
 
-      // Look for *italic* (but not **)
-      if (!remaining.startsWith('**')) {
-        const italicMatch = remaining.match(/^\*([^*]+?)\*/);
-        if (italicMatch) {
-          result.push(
-            <em key={getKey()} className="italic">
-              {renderInlineText(italicMatch[1], getKey())}
-            </em>
-          );
-          remaining = remaining.slice(italicMatch[0].length);
-          continue;
-        }
-      }
-
-      // Find next marker position
-      let nextMarkerIdx = remaining.length;
-
-      // Both [^N] and [N] formats
-      const footnoteRefIdx = remaining.search(/\[\^?\d+\]/);
-      if (footnoteRefIdx > 0) nextMarkerIdx = Math.min(nextMarkerIdx, footnoteRefIdx);
-
-      const boldIdx = remaining.indexOf('**');
-      if (boldIdx > 0) nextMarkerIdx = Math.min(nextMarkerIdx, boldIdx);
-
-      const italicMatch = remaining.match(/[^*]\*[^*]/);
-      if (italicMatch && italicMatch.index !== undefined && italicMatch.index + 1 > 0) {
-        nextMarkerIdx = Math.min(nextMarkerIdx, italicMatch.index + 1);
-      }
-
-      if (nextMarkerIdx > 0 && nextMarkerIdx < remaining.length) {
-        result.push(<span key={getKey()}>{remaining.slice(0, nextMarkerIdx)}</span>);
-        remaining = remaining.slice(nextMarkerIdx);
-      } else {
-        result.push(<span key={getKey()}>{remaining}</span>);
-        break;
-      }
-    }
-
-    return result;
+      return (
+        <span key={key} className={className}>
+          {token.text}
+        </span>
+      );
+    });
   }, []);
+
+  const renderTextBlocks = useCallback((text: string, id: string, paragraphClassName: string = 'leading-relaxed') => (
+    getRichTextBlocks(text).map((block, idx) => {
+      const key = `${id}-block-${idx}`;
+
+      if (block.type === 'spacer') {
+        return (
+          <div
+            key={key}
+            aria-hidden="true"
+            style={{ height: `${Math.max(0.5, Math.min(block.lines, 4) * 0.8)}rem` }}
+          />
+        );
+      }
+
+      if (block.type === 'separator') {
+        return (
+          <div key={key} className="flex items-center gap-3 py-2 text-gray-300 dark:text-gray-600">
+            <span className="h-px flex-1 bg-gradient-to-r from-transparent via-current to-current opacity-60" />
+            <span className="font-mono text-[10px] tracking-[0.35em]">{block.marker}</span>
+            <span className="h-px flex-1 bg-gradient-to-l from-transparent via-current to-current opacity-60" />
+          </div>
+        );
+      }
+
+      return (
+        <p key={key} className={`${paragraphClassName} whitespace-pre-wrap break-words`}>
+          {renderInlineText(block.text, key)}
+        </p>
+      );
+    })
+  ), [renderInlineText]);
 
   // Render text with footnotes displayed at the bottom
   const renderFormattedText = useCallback((text: string, id: string = 'text'): React.ReactNode => {
     const { mainText, footnotes } = parseFootnotes(text);
-    const paragraphs = mainText.split('\n').filter(p => p.trim());
 
     return (
       <div className="space-y-2">
         {/* Main content */}
-        <div className="space-y-2">
-          {paragraphs.map((para, idx) => (
-            <p key={`${id}-p-${idx}`} className="leading-relaxed">
-              {renderInlineText(para, `${id}-p-${idx}`)}
-            </p>
-          ))}
+        <div>
+          {renderTextBlocks(mainText, `${id}-p`, 'leading-relaxed')}
         </div>
 
         {/* Footnotes section */}
@@ -347,7 +242,7 @@ const ScannerView: React.FC<ScannerViewProps> = ({
         )}
       </div>
     );
-  }, [parseFootnotes, renderInlineText]);
+  }, [parseFootnotes, renderInlineText, renderTextBlocks]);
 
   // Helper to render text with visible whitespace markers AND formatting
   const renderWithVisibleWhitespace = useCallback((text: string, showFormatting: boolean = true) => {

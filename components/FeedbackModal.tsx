@@ -404,7 +404,6 @@ const FeedbackModal: React.FC<FeedbackModalProps> = ({ isOpen, onClose, currentF
           {/* ID błędu - tylko dla nietrafnych poprawek */}
           {type === 'wrong_correction' ? (
             <div>
-              {console.log('🟢 Rendering mistake ID field with value:', mistakeId)}
               <label htmlFor="feedback-mistake-id" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 ID błędu <span className="text-gray-400 font-normal">(widoczne w liście poprawek)</span>
               </label>

@@ -13,6 +13,42 @@ export interface ModelDef {
 export const MODELS_DB: ModelDef[] = [
   // --- GPT-5 Series (Flagship) ---
   {
+    id: 'gpt-5.6-sol',
+    name: 'GPT-5.6 Sol',
+    input: 10.00, cachedInput: 1.00, output: 45.00,
+    maxOutput: 128000,
+    context: '1.05M',
+    desc: 'Seria GPT-5.6. Long context: $10 input / $1 cached / $12.50 cache writes / $45 output za 1M tokenów.',
+    tags: ['balanced', 'smart', 'next-gen']
+  },
+  {
+    id: 'gpt-5.6-terra',
+    name: 'GPT-5.6 Terra',
+    input: 5.00, cachedInput: 0.50, output: 22.50,
+    maxOutput: 128000,
+    context: '1.05M',
+    desc: 'Seria GPT-5.6. Long context: $5 input / $0.50 cached / $6.25 cache writes / $22.50 output za 1M tokenów.',
+    tags: ['balanced', 'next-gen']
+  },
+  {
+    id: 'gpt-5.6-luna',
+    name: 'GPT-5.6 Luna',
+    input: 2.00, cachedInput: 0.20, output: 9.00,
+    maxOutput: 128000,
+    context: '1.05M',
+    desc: 'Seria GPT-5.6. Long context: $2 input / $0.20 cached / $2.50 cache writes / $9 output za 1M tokenów.',
+    tags: ['fast', 'next-gen']
+  },
+  {
+    id: 'gpt-5.5',
+    name: 'GPT-5.5',
+    input: 10.00, cachedInput: 1.00, output: 45.00,
+    maxOutput: 128000,
+    context: '1.05M',
+    desc: 'Najnowszy GPT-5.5. Ceny long context (>272k input): $10 / $1 / $45 za 1M tokenów.',
+    tags: ['balanced', 'smart', 'next-gen']
+  },
+  {
     id: 'gpt-5.4',
     name: 'GPT-5.4',
     input: 5.00, cachedInput: 0.50, output: 22.50,
