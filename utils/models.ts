@@ -2,6 +2,7 @@ export interface ModelDef {
   id: string;
   name: string;
   input: number; // Price per 1M
+  cacheWrite?: number; // Price per 1M cache-write tokens
   cachedInput: number; // Price per 1M
   output: number; // Price per 1M
   maxOutput: number; // Max output tokens
@@ -12,6 +13,16 @@ export interface ModelDef {
 
 export const MODELS_DB: ModelDef[] = [
   // --- GPT-5 Series (Flagship) ---
+  {
+    id: 'gpt-6-astra',
+    name: 'GPT-6 Astra',
+    input: 20.00, cachedInput: 2.00, output: 75.00,
+    cacheWrite: 25.00,
+    maxOutput: 128000,
+    context: '1.05M',
+    desc: 'GPT-6 Astra. Long context: $20 input / $2 cached / $25 cache writes / $75 output za 1M tokenów.',
+    tags: ['balanced', 'smart', 'next-gen']
+  },
   {
     id: 'gpt-5.6-sol',
     name: 'GPT-5.6 Sol',
@@ -122,7 +133,7 @@ export const getModelDef = (modelId: string): ModelDef => {
   // Fuzzy match or exact match
   return MODELS_DB.find(m => normalized === m.id) ||
     MODELS_DB.find(m => normalized.includes(m.id)) ||
-    MODELS_DB[0];
+    MODELS_DB.find(m => m.id === 'gpt-5.6-sol')!;
 };
 
 export const calculateSessionCost = (modelId: string, promptTokens: number, completionTokens: number): number => {
