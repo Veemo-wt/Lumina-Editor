@@ -709,7 +709,7 @@ const ScannerView: React.FC<ScannerViewProps> = ({
     return (
       <div className="max-w-4xl mx-auto p-6 space-y-8">
         {/* Progress Header */}
-        <div className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800">
+        <div data-lumina-panel="" className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800">
           <div className="flex justify-between items-end mb-4">
             <div>
               <h3 className="text-sm font-bold text-gray-400 uppercase tracking-widest">Skanowanie tekstu</h3>
@@ -753,7 +753,7 @@ const ScannerView: React.FC<ScannerViewProps> = ({
 
         {/* Current Processing Chunk */}
         {isProcessing && chunks[currentChunkIdx] && (
-          <div className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800">
+          <div data-lumina-panel="" className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800">
             <div className="flex items-center gap-3 mb-4">
               {(() => {
                 const CurrentIcon = PROCESSING_MESSAGES[processingMessageIdx].icon;
@@ -1024,7 +1024,7 @@ const ScannerView: React.FC<ScannerViewProps> = ({
         {/* Mistake Detail Card */}
         {selectedMistake ? (
           <div className="border-b border-gray-200 bg-gray-50/85 p-4 dark:border-gray-700 dark:bg-gray-900/60">
-            <div className="mx-auto max-w-4xl rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-900">
+            <div data-lumina-panel="" className="mx-auto max-w-4xl rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-900">
               <div className="mb-3 flex flex-wrap items-center gap-2">
                 <span className={`text-xs px-2 py-1 rounded border ${CATEGORY_COLORS[selectedMistake.category]}`}>
                   {CATEGORY_LABELS[selectedMistake.category]}
@@ -1077,7 +1077,7 @@ const ScannerView: React.FC<ScannerViewProps> = ({
         {/* Text Display with All Mistakes Highlighted */}
         <div ref={textDisplayRef} className="prose-scroll min-h-0 flex-1 overflow-y-auto bg-gray-100 p-4 dark:bg-gray-950 sm:p-6">
           {chunks.length > 0 ? (
-            <div className="mx-auto max-w-4xl rounded-xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-900">
+            <div data-lumina-panel="" className="mx-auto max-w-4xl rounded-xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-900">
               <div className="mb-4 flex flex-wrap items-center justify-between gap-2 text-xs text-gray-400">
                 <span>
                   Pełny tekst • {allMistakes.length} {allMistakes.length === 1 ? 'błąd' : allMistakes.length < 5 ? 'błędy' : 'błędów'}

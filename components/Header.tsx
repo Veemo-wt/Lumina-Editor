@@ -1,3 +1,6 @@
+import { useColorMode } from '../appearance/appearance';
+import AppearanceControl from './AppearanceControl';
+import ChangelogButton from './ChangelogButton';
 import React, { useState, useEffect, useRef } from 'react';
 import {
   Download, Loader2, Trash2, Sun, Moon, CheckCircle, XCircle, Clock, ChevronDown,
@@ -138,15 +141,7 @@ const Header: React.FC<HeaderProps> = ({
   onOpenSessions,
   onUpdateSessionName
 }) => {
-  const [isDark, setIsDark] = useState(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('theme');
-      if (saved === 'dark') return true;
-      if (saved === 'light') return false;
-      return window.matchMedia('(prefers-color-scheme: dark)').matches;
-    }
-    return false;
-  });
+  const [isDark, setIsDark] = useColorMode();
 
   const [isEditingName, setIsEditingName] = useState(false);
   const [editName, setEditName] = useState('');
@@ -195,15 +190,6 @@ const Header: React.FC<HeaderProps> = ({
     };
   };
 
-  useEffect(() => {
-    if (isDark) {
-      document.documentElement.classList.add('dark');
-      localStorage.setItem('theme', 'dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-      localStorage.setItem('theme', 'light');
-    }
-  }, [isDark]);
 
   const handleStartEditName = () => {
     setEditName(sessionName || fileName || `Sesja ${sessionId?.substring(0, 6) || ''}`);
@@ -339,6 +325,8 @@ const Header: React.FC<HeaderProps> = ({
             >
               <MessageCircle size={17} />
             </button>
+            <AppearanceControl isDark={isDark} onModeChange={setIsDark} />
+            <ChangelogButton />
             <button
               onClick={() => setIsDark(!isDark)}
               className={iconButtonClass}

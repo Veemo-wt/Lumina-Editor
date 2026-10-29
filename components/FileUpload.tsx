@@ -70,7 +70,7 @@ const FileUpload: React.FC<Props> = ({ onFileLoaded }) => {
   }, [onFileLoaded]);
 
   return (
-    <div className="max-w-2xl mx-auto mt-20 p-8">
+    <div data-lumina-upload="" className="max-w-2xl mx-auto mt-20 p-8">
       <div className="text-center mb-10">
         <h1 className="text-4xl font-serif font-bold text-gray-900 dark:text-gray-100 mb-4 transition-colors">Lumina Scanner</h1>
         <p className="text-gray-500 dark:text-gray-400 text-lg transition-colors">Profesjonalny skaner błędów językowych</p>
