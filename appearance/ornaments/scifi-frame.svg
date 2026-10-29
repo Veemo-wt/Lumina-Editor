@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="160" height="160" viewBox="0 0 160 160" fill="none" stroke="#4997a6">
+<path d="M27 3H133l24 24V133l-24 24H27L3 133V27Z" stroke-width=".8"/>
+<path d="M32 10H128l22 22V128l-22 22H32L10 128V32Z" stroke-width=".4" stroke-dasharray="3 4"/>
+<defs><g id="corner"><path d="M3 35V24L24 3h11M9 35v-9L26 9h9M17 35v-6l12-12h6" stroke-width="1.4"/><path d="m8 20 12-12M14 20l6-6" stroke-width="2.8"/><circle cx="29" cy="29" r="2"/><path d="M29 32v7m3-10h7" stroke-width=".6"/></g><g id="edge"><path d="M40 4h27l5 5h16l5-5h27"/><path d="M45 9h18m34 0h18" stroke-width="2"/><path d="M45 14v4m8-4v3m8-3v4m38-4v4m8-4v3m8-3v4" stroke-width=".65"/><circle cx="80" cy="4" r="1.4" fill="#4997a6"/></g></defs>
+<use href="#corner"/><use href="#corner" transform="translate(160 0) rotate(90)"/><use href="#corner" transform="translate(160 160) rotate(180)"/><use href="#corner" transform="translate(0 160) rotate(270)"/>
+<use href="#edge"/><use href="#edge" transform="translate(160 0) rotate(90)"/><use href="#edge" transform="translate(160 160) rotate(180)"/><use href="#edge" transform="translate(0 160) rotate(270)"/>
+</svg>

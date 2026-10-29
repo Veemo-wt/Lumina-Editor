@@ -145,7 +145,7 @@ export const SessionSelector: React.FC<SessionSelectorProps> = ({ onClose, curre
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4 backdrop-blur-md">
-      <div className="flex max-h-[88vh] w-full max-w-4xl flex-col overflow-hidden rounded-3xl border border-gray-200/80 bg-white/95 shadow-[0_35px_100px_-45px_rgba(15,23,42,0.65)] dark:border-gray-800 dark:bg-gray-950/95">
+      <div data-lumina-window="" className="flex max-h-[88vh] w-full max-w-4xl flex-col overflow-hidden rounded-3xl border border-gray-200/80 bg-white/95 shadow-[0_35px_100px_-45px_rgba(15,23,42,0.65)] dark:border-gray-800 dark:bg-gray-950/95">
         <div className="flex-shrink-0 border-b border-brand-500/30 bg-gradient-to-r from-brand-600 via-brand-600 to-brand-700 p-6">
           <h2 className="text-2xl font-serif font-bold text-white">Sesje edycji</h2>
           <p className="mt-1 text-sm text-brand-100/95">{sessions.length} zapisanych sesji</p>
@@ -181,7 +181,7 @@ export const SessionSelector: React.FC<SessionSelectorProps> = ({ onClose, curre
                   const progress = getProgress(session);
 
                   return (
-                    <div
+                    <div data-lumina-panel=""
                       key={session.id}
                       onClick={() => handleSelectSession(session.id)}
                       className={`group relative flex cursor-pointer items-center gap-4 rounded-2xl border p-4 transition-all ${

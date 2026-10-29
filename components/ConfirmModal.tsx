@@ -26,7 +26,7 @@ const ConfirmModal: React.FC<ConfirmModalProps> = ({
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
-            <div className="bg-white dark:bg-gray-900 rounded-xl shadow-xl max-w-md w-full overflow-hidden border border-gray-200 dark:border-gray-800 animate-in zoom-in-95 duration-200">
+            <div data-lumina-window="" className="bg-white dark:bg-gray-900 rounded-xl shadow-xl max-w-md w-full overflow-hidden border border-gray-200 dark:border-gray-800 animate-in zoom-in-95 duration-200">
 
                 {/* Header */}
                 <div className="p-4 border-b border-gray-100 dark:border-gray-800 flex justify-between items-center">

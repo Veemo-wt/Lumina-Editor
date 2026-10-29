@@ -1,3 +1,6 @@
+import AppearanceControl from './components/AppearanceControl';
+import ChangelogButton from './components/ChangelogButton';
+import { useColorMode } from './appearance/appearance';
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { AppStage, ChunkData, ScanOptions } from './types';
@@ -46,6 +49,7 @@ const DEFAULT_CONFIG: EditorConfig = {
 type EditorStage = 'upload' | 'review';
 
 const App: React.FC = () => {
+  const [isDark, setIsDark] = useColorMode();
   const { sessionId: urlSessionId } = useParams<{ sessionId?: string }>();
   const navigate = useNavigate();
 
@@ -401,6 +405,9 @@ const App: React.FC = () => {
               </div>
             </div>
 
+            <div className="flex items-center gap-2">
+            <AppearanceControl isDark={isDark} onModeChange={setIsDark} />
+            <ChangelogButton />
             {/* Session selector button in upload view */}
             <button
               onClick={() => setIsSessionSelectorOpen(true)}
@@ -409,6 +416,7 @@ const App: React.FC = () => {
             >
               <FolderOpen size={18} />
             </button>
+            </div>
             </div>
           </header>
 

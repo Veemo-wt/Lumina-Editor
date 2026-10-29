@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="160" height="160" viewBox="0 0 160 160" fill="none" stroke="#9b8565">
+<path d="M1 1h158v158H1Z" stroke-width="1.4"/><path d="M7 7h146v146H7Z" stroke-width=".5"/>
+<path d="M24 12h112v12h12v112h-12v12H24v-12H12V24h12Z" stroke-width=".65"/>
+<defs><g id="corner"><path d="M3 33V3h30M8 33V8h25M13 33V13h20M18 33V18h15" stroke-width=".8"/><path d="m20 25 5-5 5 5-5 5Z" fill="#9b8565"/><path d="M25 25 8 8m17 17v8m0-8h8" stroke-width=".5"/></g><g id="edge"><path d="M38 5h84" stroke-width=".5"/><path d="m66 3 4 4 10-4 10 4 4-4M72 5l8 5 8-5" stroke-width=".65"/><path d="M40 8v3m4-3v3m4-3v3m64-3v3m4-3v3m4-3v3" stroke-width=".7"/></g></defs>
+<use href="#corner"/><use href="#corner" transform="translate(160 0) rotate(90)"/><use href="#corner" transform="translate(160 160) rotate(180)"/><use href="#corner" transform="translate(0 160) rotate(270)"/>
+<use href="#edge"/><use href="#edge" transform="translate(160 0) rotate(90)"/><use href="#edge" transform="translate(160 160) rotate(180)"/><use href="#edge" transform="translate(0 160) rotate(270)"/>
+</svg>
