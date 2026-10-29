@@ -1,3 +1,5 @@
+import ModelAccessCheck from './ModelAccessCheck';
+import ModelPriceSummary from './ModelPriceSummary';
 import React, { useMemo, useState } from 'react';
 import { BookGenre, TranslationConfig, CharacterTrait } from '../types';
 import { MODELS_DB, ModelDef } from '../utils/models';
@@ -133,7 +135,7 @@ const ConfigPanel: React.FC<Props> = ({ config, onChange, onStart, fileName, cha
   };
 
   return (
-    <div className="max-w-3xl mx-auto my-6 bg-white dark:bg-slate-900 rounded-xl shadow-lg border border-slate-200 dark:border-slate-800 overflow-visible relative transition-colors">
+    <div data-lumina-panel="" className="max-w-3xl mx-auto my-6 bg-white dark:bg-slate-900 rounded-xl shadow-lg border border-slate-200 dark:border-slate-800 overflow-visible relative transition-colors">
 
       {/* Header */}
       <div className="p-6 border-b border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 flex justify-between items-center transition-colors">
@@ -194,10 +196,11 @@ const ConfigPanel: React.FC<Props> = ({ config, onChange, onStart, fileName, cha
                 <ChevronDown size={18} />
               </button>
             </div>
+            <ModelAccessCheck apiKey={config.apiKey} />
 
             {/* Smart Model List Dropdown */}
             {showModelList && (
-              <div className="absolute z-50 mt-2 w-full md:w-[120%] md:-left-[10%] bg-white dark:bg-slate-900 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-700 max-h-[400px] overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800 animate-in fade-in slide-in-from-top-2">
+              <div data-lumina-panel="" className="absolute z-50 mt-2 w-full md:w-[120%] md:-left-[10%] bg-white dark:bg-slate-900 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-700 max-h-[400px] overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800 animate-in fade-in slide-in-from-top-2">
                 <div className="sticky top-0 bg-slate-50 dark:bg-slate-900/95 backdrop-blur-sm p-2 text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800 z-10">
                   Wybierz model do skanowania
                 </div>
@@ -218,6 +221,7 @@ const ConfigPanel: React.FC<Props> = ({ config, onChange, onStart, fileName, cha
                       </div>
 
                       <p className="text-xs text-slate-500 dark:text-slate-400 leading-snug mb-2">{m.desc}</p>
+                      <ModelPriceSummary model={m} />
 
                       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px]">
                         <span className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 px-1.5 py-0.5 rounded border border-slate-200 dark:border-slate-700" title="Wielkość kontekstu">
@@ -226,10 +230,7 @@ const ConfigPanel: React.FC<Props> = ({ config, onChange, onStart, fileName, cha
                         <span className="flex items-center gap-1 text-slate-500 dark:text-slate-400" title="Limit tokenów wyjściowych">
                           Max Out: <span className="font-bold text-brand-600 dark:text-brand-400">{m.maxOutput.toLocaleString()}</span>
                         </span>
-                        <span className="flex items-center gap-1 text-slate-500 dark:text-slate-400 ml-auto" title="Cena za 1M tokenów (bez cache)">
-                          <span className="font-medium text-slate-700 dark:text-slate-300">${m.input} In</span> /
-                          <span className="font-medium text-slate-700 dark:text-slate-300">${m.output} Out</span>
-                        </span>
+
                       </div>
                     </div>
 
